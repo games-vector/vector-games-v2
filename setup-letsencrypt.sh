@@ -81,6 +81,9 @@ echo -e "${GREEN}✅ Certificate obtained${NC}"
 # Update nginx config with SSL
 echo -e "${YELLOW}Configuring nginx with SSL...${NC}"
 
+# Remove old config if it exists to avoid duplicates
+rm -f /etc/nginx/sites-enabled/vector-games-v2
+
 cat > /etc/nginx/sites-available/vector-games-v2 << EOF
 upstream backend {
     server 127.0.0.1:3000;
