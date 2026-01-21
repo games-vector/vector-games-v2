@@ -31,15 +31,18 @@ rm -rf chicken-road-b
 mkdir -p /opt/vector-games
 cd /opt/vector-games
 
-# Clone vector-games-v2
+# Clone both repositories
 git clone https://github.com/games-vector/vector-games-v2.git
+git clone https://github.com/games-vector/game-platform-core.git
 
-# Ensure game-platform-core is in parent directory
-# If you have it in a separate repo:
-git clone https://github.com/games-vector/game-platform-core.git ../game-platform-core
-# Or if it's already there, verify it exists:
-ls -la ../game-platform-core
+# Verify directory structure
+ls -la
+# Should show:
+# - game-platform-core/
+# - vector-games-v2/
 ```
+
+**Important:** Both repositories must be in the same parent directory (`/opt/vector-games/`) for the deployment to work.
 
 ### 3. Configure Environment
 
@@ -201,12 +204,34 @@ docker logs vector-games-mysql
 docker exec -it vector-games-mysql mysql -u vectorgames_user -p vectorgames
 ```
 
+### game-platform-core not found
+```bash
+# Verify it's in the parent directory
+ls -la /opt/vector-games/
+# Should show:
+# - game-platform-core/
+# - vector-games-v2/
+
+# If missing, clone it:
+cd /opt/vector-games
+git clone https://github.com/games-vector/game-platform-core.git
+```
+
 ## Maintenance
 
 ### Update Application
 ```bash
 cd /opt/vector-games/vector-games-v2
 git pull origin main
+./deploy.sh
+```
+
+### Update game-platform-core
+```bash
+cd /opt/vector-games/game-platform-core
+git pull origin main
+# Then redeploy vector-games-v2
+cd ../vector-games-v2
 ./deploy.sh
 ```
 
