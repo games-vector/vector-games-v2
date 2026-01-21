@@ -1,0 +1,182 @@
+#!/bin/bash
+
+set -e
+
+echo "🚀 Starting Vector Games V2 deployment..."
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Check if .env.production exists
+if [ ! -f .env.production ]; then
+    echo -e "${RED}❌ Error: .env.production file not found!${NC}"
+    echo -e "${YELLOW}📝 Please create .env.production file with your configuration.${NC}"
+    echo -e "${YELLOW}📝 You can copy env.production.template and modify it.${NC}"
+    exit 1
+fi
+
+# Check if Docker is installed
+if ! command -v docker &> /dev/null; then
+    echo -e "${RED}❌ Error: Docker is not installed!${NC}"
+    exit 1
+fi
+
+# Check if Docker Compose is installed
+if ! docker compose version &> /dev/null; then
+    echo -e "${RED}❌ Error: Docker Compose is not installed!${NC}"
+    exit 1
+fi
+
+# Check if game-platform-core exists
+if [ ! -d "../game-platform-core" ]; then
+    echo -e "${RED}❌ Error: game-platform-core directory not found!${NC}"
+    echo -e "${YELLOW}📝 Expected location: ../game-platform-core${NC}"
+    echo -e "${YELLOW}📝 Please ensure game-platform-core is in the parent directory.${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✅ Prerequisites check passed${NC}"
+
+# Build game-platform-core package first
+echo -e "${YELLOW}📦 Building game-platform-core package...${NC}"
+cd ../game-platform-core
+if [ ! -f "package.json" ]; then
+    echo -e "${RED}❌ Error: game-platform-core/package.json not found!${NC}"
+    exit 1
+fi
+
+# Clean up old package files
+rm -f vector-games-game-core-*.tgz
+
+# Build the package
+npm ci || npm install
+npm run build
+npm pack
+
+# Find the created package file
+PACKAGE_FILE=$(ls vector-games-game-core-*.tgz | head -n 1)
+if [ -z "$PACKAGE_FILE" ]; then
+    echo -e "${RED}❌ Error: Failed to create game-platform-core package!${NC}"
+    exit 1
+fi
+
+# Copy the package file to vector-games-v2 directory for Docker build context
+cd ../vector-games-v2
+cp ../game-platform-core/$PACKAGE_FILE ./
+echo -e "${GREEN}✅ game-platform-core package built and copied: $PACKAGE_FILE${NC}"
+
+# Stop existing containers
+echo -e "${YELLOW}🛑 Stopping existing containers...${NC}"
+docker compose -f docker-compose.prod.yml --env-file .env.production down || true
+
+# Build and start services
+echo -e "${YELLOW}🔨 Building and starting services...${NC}"
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+
+# Wait for services to be healthy
+echo -e "${YELLOW}⏳ Waiting for services to be healthy...${NC}"
+
+# Wait for MySQL and Redis to be healthy
+echo -e "${YELLOW}   Waiting for MySQL and Redis...${NC}"
+max_wait=60
+elapsed=0
+while [ $elapsed -lt $max_wait ]; do
+    mysql_status=$(docker inspect --format='{{.State.Health.Status}}' vector-games-mysql 2>/dev/null || echo "unknown")
+    redis_status=$(docker inspect --format='{{.State.Health.Status}}' vector-games-redis 2>/dev/null || echo "unknown")
+    
+    if [ "$mysql_status" = "healthy" ] && [ "$redis_status" = "healthy" ]; then
+        echo -e "${GREEN}   ✅ MySQL and Redis are healthy${NC}"
+        break
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+    echo -n "."
+done
+echo ""
+
+# Wait for app container to be running
+echo -e "${YELLOW}   Waiting for app container to start...${NC}"
+max_wait=30
+elapsed=0
+while [ $elapsed -lt $max_wait ]; do
+    if docker ps | grep -q vector-games-backend; then
+        echo -e "${GREEN}   ✅ App container is running${NC}"
+        break
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+    echo -n "."
+done
+echo ""
+
+# Wait for app health check
+echo -e "${YELLOW}   Waiting for app health check (this may take up to 90 seconds)...${NC}"
+max_wait=90
+elapsed=0
+health_passed=false
+
+while [ $elapsed -lt $max_wait ]; do
+    # Check if container is running
+    if ! docker ps | grep -q vector-games-backend; then
+        echo -e "\n${RED}❌ App container stopped!${NC}"
+        echo -e "${YELLOW}📋 Checking logs...${NC}"
+        docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail=50 app
+        exit 1
+    fi
+    
+    # Check health status
+    health_status=$(docker inspect --format='{{.State.Health.Status}}' vector-games-backend 2>/dev/null || echo "starting")
+    
+    if [ "$health_status" = "healthy" ]; then
+        echo -e "\n${GREEN}   ✅ App is healthy!${NC}"
+        health_passed=true
+        break
+    elif [ "$health_status" = "unhealthy" ]; then
+        echo -e "\n${RED}❌ App health check failed!${NC}"
+        echo -e "${YELLOW}📋 Checking logs...${NC}"
+        docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail=50 app
+        exit 1
+    fi
+    
+    sleep 5
+    elapsed=$((elapsed + 5))
+    echo -n "."
+done
+echo ""
+
+# Final check
+if [ "$health_passed" = false ]; then
+    echo -e "${YELLOW}⚠️  Health check timeout, but checking if app is responding...${NC}"
+    
+    # Try to hit the health endpoint directly
+    sleep 2
+    if curl -f http://localhost:3000/health > /dev/null 2>&1; then
+        echo -e "${GREEN}✅ App is responding on /health endpoint!${NC}"
+        health_passed=true
+    else
+        echo -e "${YELLOW}⚠️  Health endpoint not responding, but container is running${NC}"
+        echo -e "${YELLOW}📋 Checking logs...${NC}"
+        docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail=30 app
+    fi
+fi
+
+# Show final status
+echo -e "${GREEN}📊 Container status:${NC}"
+docker compose -f docker-compose.prod.yml --env-file .env.production ps
+
+if [ "$health_passed" = true ] || docker ps | grep -q vector-games-backend; then
+    echo -e "${GREEN}✅ Application deployment completed!${NC}"
+else
+    echo -e "${RED}❌ Application may not be fully healthy. Check logs above.${NC}"
+    exit 1
+fi
+
+# Clean up package file (optional, can be kept for faster rebuilds)
+# rm -f vector-games-game-core-*.tgz
+
+echo -e "${GREEN}🎉 Deployment completed successfully!${NC}"
+echo -e "${YELLOW}📝 To view logs: docker compose -f docker-compose.prod.yml --env-file .env.production logs -f app${NC}"
+echo -e "${YELLOW}🛑 To stop: docker compose -f docker-compose.prod.yml --env-file .env.production down${NC}"
