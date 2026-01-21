@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
-import { WalletService, UserService, AgentsService } from '@vector-games/game-core';
+import { WalletService, UserService, AgentsService } from '@games-vector/game-core';
 import { GameAction } from './DTO/game-action.dto';
 import { ChickenRoadGameService } from './chicken-road-game.service';
 import { LastWinBroadcasterService } from './modules/last-win/last-win-broadcaster.service';

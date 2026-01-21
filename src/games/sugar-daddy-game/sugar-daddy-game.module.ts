@@ -1,6 +1,6 @@
 import { Module, OnModuleInit, Logger } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
-import { JwtTokenModule, UserModule, AgentsModule } from '@vector-games/game-core';
+import { JwtTokenModule, UserModule, AgentsModule } from '@games-vector/game-core';
 import { RedisModule } from '../../modules/redis/redis.module';
 import { GameModule } from '../../modules/games/game.module';
 import { GameService } from '../../modules/games/game.service';

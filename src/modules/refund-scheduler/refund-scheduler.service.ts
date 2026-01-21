@@ -4,7 +4,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import { BetService, WalletService, Bet, BetStatus } from '@vector-games/game-core';
+import { BetService, WalletService, Bet, BetStatus } from '@games-vector/game-core';
 import { RedisService } from '../redis/redis.service';
 import { GameService } from '../games/game.service';
 import { DEFAULTS } from '../../config/defaults.config';

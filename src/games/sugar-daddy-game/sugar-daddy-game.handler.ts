@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
-import { JwtTokenService, UserTokenPayload, WalletService, UserService, AgentsService } from '@vector-games/game-core';
+import { JwtTokenService, UserTokenPayload, WalletService, UserService, AgentsService } from '@games-vector/game-core';
 import { SugarDaddyGameService } from './sugar-daddy-game.service';
 import { SugarDaddyGameBetService, PlaceBetPayload } from './sugar-daddy-game-bet.service';
 import { GameService } from '../../modules/games/game.service';

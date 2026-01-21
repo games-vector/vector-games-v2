@@ -15,6 +15,9 @@ build/
 .env.production
 .env.*.local
 
+# npmrc (contains tokens)
+.npmrc
+
 # Logs
 logs/
 *.log

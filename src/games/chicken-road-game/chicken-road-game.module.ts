@@ -1,5 +1,5 @@
 import { Module, OnModuleInit, Logger } from '@nestjs/common';
-import { AgentsModule, JwtTokenModule, UserModule, WalletModule } from '@vector-games/game-core';
+import { AgentsModule, JwtTokenModule, UserModule, WalletModule } from '@games-vector/game-core';
 import { GameModule } from '../../modules/games/game.module';
 import { GameService } from '../../modules/games/game.service';
 import { ChickenRoadGameHandler } from './chicken-road-game.handler';

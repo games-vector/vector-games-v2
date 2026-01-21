@@ -1,23 +1,6 @@
-# Multi-stage build for vector-games-v2 with game-platform-core package
+# Multi-stage build for vector-games-v2 with game-platform-core from GitHub Packages
 
-# Stage 1: Build game-platform-core package
-FROM node:20-alpine AS core-builder
-WORKDIR /app/core
-
-# Copy game-platform-core source from parent directory
-# Note: Docker build context is set to parent directory in docker-compose
-COPY game-platform-core/package*.json ./
-COPY game-platform-core/tsconfig.json ./
-COPY game-platform-core/src ./src
-
-# Build the package (use --legacy-peer-deps to handle peer dependency conflicts)
-RUN npm ci --legacy-peer-deps || npm install --legacy-peer-deps
-RUN npm run build
-
-# Package it as .tgz
-RUN npm pack
-
-# Stage 2: Build vector-games-v2 application
+# Stage 1: Build vector-games-v2 application
 FROM node:20-alpine AS builder
 WORKDIR /app
 
@@ -26,26 +9,29 @@ RUN npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000
 
+# Set up GitHub Packages registry
+RUN echo "@games-vector:registry=https://npm.pkg.github.com" > .npmrc
+
+# Set up GitHub Packages authentication
+# GITHUB_TOKEN should be passed as build arg
+ARG GITHUB_TOKEN
+RUN if [ -n "$GITHUB_TOKEN" ]; then \
+      echo "//npm.pkg.github.com/:_authToken=$GITHUB_TOKEN" >> .npmrc; \
+    else \
+      echo "Warning: GITHUB_TOKEN not provided. Package installation may fail."; \
+    fi
+
 # Copy package files (from vector-games-v2 directory)
 COPY vector-games-v2/package*.json ./
 
-# Copy the built game-platform-core package from previous stage
-# package.json references: file:../game-platform-core/vector-games-game-core-1.0.0.tgz
-# From /app, this resolves to /game-platform-core/vector-games-game-core-1.0.0.tgz
-RUN mkdir -p /game-platform-core
-
-# Copy the .tgz file directly to the expected location with the exact filename
-COPY --from=core-builder /app/core/vector-games-game-core-*.tgz /game-platform-core/vector-games-game-core-1.0.0.tgz
-
-# Verify the file exists and show its size
-RUN ls -lh /game-platform-core/ && \
-    test -f /game-platform-core/vector-games-game-core-1.0.0.tgz || (echo "Error: .tgz file not found" && exit 1)
-
-# Install dependencies (use npm install instead of npm ci to avoid strict integrity checks on local files)
-RUN npm install --legacy-peer-deps
+# Install dependencies (will fetch @games-vector/game-core from GitHub Packages)
+RUN npm ci --legacy-peer-deps || npm install --legacy-peer-deps
 
 # Copy source code (from vector-games-v2 directory)
 COPY vector-games-v2/ .
+
+# Remove .npmrc from build (not needed in final image, and contains token)
+RUN rm -f .npmrc
 
 # Build the application
 RUN npm run build

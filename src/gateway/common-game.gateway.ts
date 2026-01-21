@@ -13,7 +13,7 @@ import {
   WalletService,
   UserService,
   AgentsService,
-} from '@vector-games/game-core';
+} from '@games-vector/game-core';
 import { GameService } from '../modules/games/game.service';
 import { GameDispatcherService } from '../games/game-dispatcher.service';
 import {

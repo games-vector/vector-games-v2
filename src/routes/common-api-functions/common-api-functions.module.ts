@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { AgentsModule, JwtTokenModule, UserModule, AgentAuthGuard } from '@vector-games/game-core';
+import { AgentsModule, JwtTokenModule, UserModule, AgentAuthGuard } from '@games-vector/game-core';
 
 import { GameConfigModule } from '../../modules/game-config/game-config.module';
 import { UserSessionModule } from '../../modules/user-session/user-session.module';

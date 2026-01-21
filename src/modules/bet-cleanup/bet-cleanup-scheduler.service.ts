@@ -3,7 +3,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { BetService } from '@vector-games/game-core';
+import { BetService } from '@games-vector/game-core';
 import { RedisService } from '../redis/redis.service';
 
 /**

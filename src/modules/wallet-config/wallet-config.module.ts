@@ -1,6 +1,6 @@
 import { Module, Logger, OnModuleInit, Global } from '@nestjs/common';
-import { WalletModule } from '@vector-games/game-core';
-import { WALLET_API_ADAPTER } from '@vector-games/game-core/dist/services/wallet/wallet.service';
+import { WalletModule } from '@games-vector/game-core';
+import { WALLET_API_ADAPTER } from '@games-vector/game-core/dist/services/wallet/wallet.service';
 import { GameModule } from '../games/game.module';
 import { GameService } from '../games/game.service';
 

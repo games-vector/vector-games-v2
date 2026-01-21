@@ -2,7 +2,7 @@ import { Game } from "../../entities/game.entity";
 import { Injectable, NotFoundException, ConflictException, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { GameValidationService, WalletApiAdapter } from "@vector-games/game-core";
+import { GameValidationService, WalletApiAdapter } from "@games-vector/game-core";
 
 @Injectable()
 export class GameService implements GameValidationService, WalletApiAdapter {

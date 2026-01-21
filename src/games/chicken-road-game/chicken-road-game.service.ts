@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { v4 as uuidv4 } from 'uuid';
-import { BetService } from '@vector-games/game-core';
+import { BetService } from '@games-vector/game-core';
 import { BetPayloadDto, Difficulty } from './DTO/bet-payload.dto';
 
 import { FairnessService } from './modules/fairness/fairness.service';
@@ -10,7 +10,7 @@ import { GameConfigService } from '../../modules/game-config/game-config.service
 import { HazardSchedulerService } from './modules/hazard/hazard-scheduler.service';
 import { RedisService } from '../../modules/redis/redis.service';
 import { GameService } from '../../modules/games/game.service';
-import { WalletService } from '@vector-games/game-core';
+import { WalletService } from '@games-vector/game-core';
 
 import { DEFAULTS } from '../../config/defaults.config';
 

@@ -1,5 +1,5 @@
 import { Socket } from 'socket.io';
-import { UserTokenPayload } from '@vector-games/game-core';
+import { UserTokenPayload } from '@games-vector/game-core';
 
 /**
  * Connection context passed to game handlers

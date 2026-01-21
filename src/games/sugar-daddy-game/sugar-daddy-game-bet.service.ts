@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
-import { WalletService, BetService as CoreBetService, BetStatus } from '@vector-games/game-core';
+import { WalletService, BetService as CoreBetService, BetStatus } from '@games-vector/game-core';
 import { BetData, PendingBet } from './DTO/game-state.dto';
 import { SugarDaddyGameService } from './sugar-daddy-game.service';
 import { RedisService } from '../../modules/redis/redis.service';

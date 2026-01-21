@@ -8,9 +8,9 @@ import redisConfig from './config/redis.config';
 import jwtConfig from './config/jwt.config';
 import { DEFAULTS } from './config/defaults.config';
 
-import { UserModule, AgentsModule, WalletAuditModule, WalletRetryModule, JwtTokenModule, WalletModule } from '@vector-games/game-core';
+import { UserModule, AgentsModule, WalletAuditModule, WalletRetryModule, JwtTokenModule, WalletModule } from '@games-vector/game-core';
 
-import { User, Agents, Bet, WalletAudit, WalletRetryJob } from '@vector-games/game-core';
+import { User, Agents, Bet, WalletAudit, WalletRetryJob } from '@games-vector/game-core';
 import { Game } from './entities/game.entity';
 
 import { HealthController } from './routes/extra/health.controller';

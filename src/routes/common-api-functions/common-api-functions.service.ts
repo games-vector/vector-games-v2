@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
-import { Agents, AgentsService, JwtTokenService, UserService, CreateUserParams } from '@vector-games/game-core';
+import { Agents, AgentsService, JwtTokenService, UserService, CreateUserParams } from '@games-vector/game-core';
 import { GameConfigService } from '../../modules/game-config/game-config.service';
 import { UserSessionService } from '../../modules/user-session/user-session.service';
 import { CreateMemberBodyDto } from './DTO/create-member.dto';

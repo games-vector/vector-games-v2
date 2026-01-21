@@ -10,7 +10,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
-import { WalletService, UserService } from '@vector-games/game-core';
+import { WalletService, UserService } from '@games-vector/game-core';
 import { IGameHandler, GameConnectionContext } from '../interfaces/game-handler.interface';
 import { DEFAULTS } from '../../config/defaults.config';
 import { YourGameService } from './your-game.service';

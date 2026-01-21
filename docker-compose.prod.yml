@@ -55,6 +55,8 @@ services:
     build:
       context: ..  # Build from parent directory to access game-platform-core
       dockerfile: vector-games-v2/Dockerfile
+      args:
+        - GITHUB_TOKEN=${GITHUB_TOKEN:-}
     container_name: vector-games-backend
     restart: unless-stopped
     ports:
