@@ -10,8 +10,9 @@ COPY game-platform-core/package*.json ./
 COPY game-platform-core/tsconfig.json ./
 COPY game-platform-core/src ./src
 
-# Build the package
-RUN npm ci && npm run build
+# Build the package (use --legacy-peer-deps to handle peer dependency conflicts)
+RUN npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+RUN npm run build
 
 # Package it as .tgz
 RUN npm pack
