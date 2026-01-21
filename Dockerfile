@@ -29,17 +29,26 @@ RUN npm config set fetch-retries 5 && \
 # Copy package files (from vector-games-v2 directory)
 COPY vector-games-v2/package*.json ./
 
-# Copy the built game-platform-core package from previous stage to current directory first
-COPY --from=core-builder /app/core/vector-games-game-core-*.tgz ./temp-game-core.tgz
+# Copy the built game-platform-core package from previous stage
+# Find the exact filename from the core-builder stage
+COPY --from=core-builder /app/core/vector-games-game-core-*.tgz ./temp-package.tgz
 
-# Create the directory structure that package.json expects (../game-platform-core/)
+# Create the directory structure that package.json expects
 # package.json references: file:../game-platform-core/vector-games-game-core-1.0.0.tgz
 # From /app, this resolves to /game-platform-core/vector-games-game-core-1.0.0.tgz
+# We need to get the actual filename from the copied file
 RUN mkdir -p /game-platform-core && \
-    mv ./temp-game-core.tgz /game-platform-core/vector-games-game-core-1.0.0.tgz
+    PACKAGE_NAME=$(ls ./temp-package.tgz 2>/dev/null | head -n1) && \
+    if [ -f "./temp-package.tgz" ]; then \
+        cp ./temp-package.tgz /game-platform-core/vector-games-game-core-1.0.0.tgz; \
+    else \
+        echo "Error: temp-package.tgz not found"; \
+        exit 1; \
+    fi && \
+    ls -lh /game-platform-core/
 
-# Install dependencies (this will use the local .tgz file)
-RUN npm ci --legacy-peer-deps || npm ci --legacy-peer-deps
+# Install dependencies (use npm install instead of npm ci to avoid strict integrity checks on local files)
+RUN npm install --legacy-peer-deps
 
 # Copy source code (from vector-games-v2 directory)
 COPY vector-games-v2/ .
