@@ -40,17 +40,32 @@ RUN npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 
-# Copy built files
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package*.json ./
-
 # Configure npm for better network handling
 RUN npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000
 
+# Set up GitHub Packages registry for production dependencies
+RUN echo "@games-vector:registry=https://npm.pkg.github.com" > .npmrc
+
+# Set up GitHub Packages authentication
+# GITHUB_TOKEN should be passed as build arg
+ARG GITHUB_TOKEN
+RUN if [ -n "$GITHUB_TOKEN" ]; then \
+      echo "//npm.pkg.github.com/:_authToken=$GITHUB_TOKEN" >> .npmrc; \
+    else \
+      echo "Warning: GITHUB_TOKEN not provided. Package installation may fail."; \
+    fi
+
+# Copy built files
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package*.json ./
+
 # Install production dependencies only
 RUN npm ci --legacy-peer-deps --omit=dev || npm ci --legacy-peer-deps --omit=dev && npm cache clean --force
+
+# Remove .npmrc after installation (contains token)
+RUN rm -f .npmrc
 
 # Expose port
 EXPOSE 3000
