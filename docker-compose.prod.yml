@@ -53,8 +53,8 @@ services:
 
   app:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..  # Build from parent directory to access game-platform-core
+      dockerfile: vector-games-v2/Dockerfile
     container_name: vector-games-backend
     restart: unless-stopped
     ports:

@@ -40,33 +40,21 @@ fi
 
 echo -e "${GREEN}✅ Prerequisites check passed${NC}"
 
-# Build game-platform-core package first
-echo -e "${YELLOW}📦 Building game-platform-core package...${NC}"
-cd ../game-platform-core
-if [ ! -f "package.json" ]; then
+# Verify game-platform-core exists (Docker will build it)
+echo -e "${YELLOW}📦 Verifying game-platform-core...${NC}"
+if [ ! -d "../game-platform-core" ]; then
+    echo -e "${RED}❌ Error: game-platform-core directory not found!${NC}"
+    echo -e "${YELLOW}📝 Expected location: ../game-platform-core${NC}"
+    echo -e "${YELLOW}📝 Please ensure game-platform-core is in the parent directory.${NC}"
+    exit 1
+fi
+
+if [ ! -f "../game-platform-core/package.json" ]; then
     echo -e "${RED}❌ Error: game-platform-core/package.json not found!${NC}"
     exit 1
 fi
 
-# Clean up old package files
-rm -f vector-games-game-core-*.tgz
-
-# Build the package
-npm ci || npm install
-npm run build
-npm pack
-
-# Find the created package file
-PACKAGE_FILE=$(ls vector-games-game-core-*.tgz | head -n 1)
-if [ -z "$PACKAGE_FILE" ]; then
-    echo -e "${RED}❌ Error: Failed to create game-platform-core package!${NC}"
-    exit 1
-fi
-
-# Copy the package file to vector-games-v2 directory for Docker build context
-cd ../vector-games-v2
-cp ../game-platform-core/$PACKAGE_FILE ./
-echo -e "${GREEN}✅ game-platform-core package built and copied: $PACKAGE_FILE${NC}"
+echo -e "${GREEN}✅ game-platform-core found - Docker will build it during image build${NC}"
 
 # Stop existing containers
 echo -e "${YELLOW}🛑 Stopping existing containers...${NC}"
