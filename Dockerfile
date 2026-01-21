@@ -29,11 +29,14 @@ RUN npm config set fetch-retries 5 && \
 # Copy package files (from vector-games-v2 directory)
 COPY vector-games-v2/package*.json ./
 
-# Copy the built game-platform-core package from previous stage
+# Copy the built game-platform-core package from previous stage to current directory first
+COPY --from=core-builder /app/core/vector-games-game-core-*.tgz ./temp-game-core.tgz
+
 # Create the directory structure that package.json expects (../game-platform-core/)
-# and copy the .tgz file there with the expected name
-RUN mkdir -p ../game-platform-core
-COPY --from=core-builder /app/core/vector-games-game-core-*.tgz ../game-platform-core/
+# package.json references: file:../game-platform-core/vector-games-game-core-1.0.0.tgz
+# From /app, this resolves to /game-platform-core/vector-games-game-core-1.0.0.tgz
+RUN mkdir -p /game-platform-core && \
+    mv ./temp-game-core.tgz /game-platform-core/vector-games-game-core-1.0.0.tgz
 
 # Install dependencies (this will use the local .tgz file)
 RUN npm ci --legacy-peer-deps || npm ci --legacy-peer-deps
