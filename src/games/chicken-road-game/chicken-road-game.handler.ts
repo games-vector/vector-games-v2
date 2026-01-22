@@ -108,11 +108,19 @@ export class ChickenRoadGameHandler implements IGameHandler {
       ],
     };
 
-    let { betConfig } = await this.chickenRoadGameService.getGameConfigPayload(gameCode);
-
-    betConfig = {
-      INR: {
-        ...betConfig,
+    const { betConfig: dbBetConfig } = await this.chickenRoadGameService.getGameConfigPayload(gameCode);
+    
+    // Use default config values if database config is empty or missing required fields
+    const defaultBetConfig = DEFAULTS.GAMES.CHICKEN_ROAD.betConfig;
+    const betConfig = {
+      [defaultBetConfig.currency]: {
+        minBetAmount: dbBetConfig?.minBetAmount || defaultBetConfig.minBetAmount,
+        maxBetAmount: dbBetConfig?.maxBetAmount || defaultBetConfig.maxBetAmount,
+        maxWinAmount: dbBetConfig?.maxWinAmount || defaultBetConfig.maxWinAmount,
+        defaultBetAmount: dbBetConfig?.defaultBetAmount || defaultBetConfig.defaultBetAmount,
+        betPresets: dbBetConfig?.betPresets || defaultBetConfig.betPresets,
+        decimalPlaces: dbBetConfig?.decimalPlaces || defaultBetConfig.decimalPlaces,
+        currency: defaultBetConfig.currency,
       },
     };
 
@@ -152,8 +160,30 @@ export class ChickenRoadGameHandler implements IGameHandler {
     this.logger.log(
       `[WS_DISCONNECT] socketId=${client.id} user=${userId || 'N/A'} agent=${agentId || 'N/A'}`,
     );
-    // Note: cleanupOnDisconnect is commented out in the original service
-    // await this.chickenRoadGameService.cleanupOnDisconnect();
+  }
+
+  getGameConfigResponse(): any {
+    const defaultBetConfig = DEFAULTS.GAMES.CHICKEN_ROAD.betConfig;
+    const defaultCoefficients = DEFAULTS.GAMES.CHICKEN_ROAD.coefficients;
+    const defaultLastWin = DEFAULTS.GAMES.CHICKEN_ROAD.LAST_WIN;
+    
+    return {
+      betConfig: {
+        minBetAmount: defaultBetConfig.minBetAmount,
+        maxBetAmount: defaultBetConfig.maxBetAmount,
+        maxWinAmount: defaultBetConfig.maxWinAmount,
+        defaultBetAmount: defaultBetConfig.defaultBetAmount,
+        betPresets: defaultBetConfig.betPresets,
+        decimalPlaces: defaultBetConfig.decimalPlaces,
+        currency: defaultBetConfig.currency,
+      },
+      coefficients: defaultCoefficients,
+      lastWin: {
+        username: defaultLastWin.DEFAULT_USERNAME,
+        winAmount: defaultLastWin.DEFAULT_WIN_AMOUNT,
+        currency: defaultBetConfig.currency,
+      },
+    };
   }
 
   registerMessageHandlers(context: GameConnectionContext): void {
@@ -164,29 +194,15 @@ export class ChickenRoadGameHandler implements IGameHandler {
       client.emit(WS_EVENTS.PONG, { ts: Date.now() });
     });
 
-    // Game service ACK handler
-    const ackHandler = (data: any, ack?: Function, ...rest: any[]) => {
+    const ackHandler = (data: any, ack?: Function) => {
       if (typeof ack !== 'function') return;
 
       const rawAction: string | undefined = data?.action;
-      if (!rawAction) return ack(formatErrorResponse(ERROR_RESPONSES.MISSING_ACTION));
+      if (!rawAction) {
+        return ack(formatErrorResponse(ERROR_RESPONSES.MISSING_ACTION));
+      }
 
-      if (rawAction === GameAction.GET_GAME_CONFIG) {
-        if (!gameCode) {
-          return ack(formatErrorResponse(ERROR_RESPONSES.MISSING_GAME_CODE));
-        }
-
-        this.chickenRoadGameService
-          .getGameConfigPayload(gameCode)
-          .then((payload) => {
-            this.logger.log(`Returning game config (ACK) to ${client.id}`);
-            const { betConfig, ...rest } = payload;
-            ack({ ...rest });
-          })
-          .catch((e) => {
-            this.logger.error(`ACK game config failed: ${e}`);
-            ack(formatErrorResponse(ERROR_RESPONSES.CONFIG_FETCH_FAILED));
-          });
+      if (rawAction === GameAction.GET_GAME_CONFIG || rawAction === 'get-game-config') {
         return;
       }
 
@@ -396,9 +412,9 @@ export class ChickenRoadGameHandler implements IGameHandler {
       return ack(formatErrorResponse(ERROR_RESPONSES.UNSUPPORTED_ACTION));
     };
 
+    client.removeAllListeners(WS_EVENTS.GAME_SERVICE);
     client.prependListener(WS_EVENTS.GAME_SERVICE, ackHandler);
 
-    // Handle direct event for bet history
     const betHistoryHandler = (data: any, ack?: Function) => {
       if (typeof ack !== 'function') return;
 

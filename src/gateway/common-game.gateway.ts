@@ -18,8 +18,10 @@ import { GameService } from '../modules/games/game.service';
 import { GameDispatcherService } from '../games/game-dispatcher.service';
 import {
   GameConnectionContext,
+  IGameHandler,
 } from '../games/interfaces/game-handler.interface';
 import { DEFAULTS } from '../config/defaults.config';
+import { CriticalHandlersService } from '../games/utils/critical-handlers.service';
 
 const CONNECTION_ERRORS = {
   MISSING_GAMECODE: 'MISSING_GAMECODE',
@@ -67,6 +69,7 @@ export class CommonGameGateway
     private readonly gameService: GameService,
     private readonly agentsService: AgentsService,
     private readonly gameDispatcher: GameDispatcherService,
+    private readonly criticalHandlersService: CriticalHandlersService,
   ) {}
 
   /**
@@ -263,10 +266,9 @@ export class CommonGameGateway
       ipAddress,
     };
 
-    // Route to game handler
     try {
+      this.registerCriticalHandlers(handler, context);
       await handler.handleConnection(context);
-      // Let handler set up its own message listeners
       handler.registerMessageHandlers(context);
     } catch (error: any) {
       this.logger.error(
@@ -279,6 +281,17 @@ export class CommonGameGateway
         CONNECTION_ERRORS.INVALID_GAME,
       );
     }
+  }
+
+  private registerCriticalHandlers(
+    handler: IGameHandler,
+    context: GameConnectionContext,
+  ): void {
+    const getGameConfigResponse = (handler as any).getGameConfigResponse?.bind(handler);
+    this.criticalHandlersService.registerGetGameConfigHandler(
+      context,
+      getGameConfigResponse,
+    );
   }
 
   /**

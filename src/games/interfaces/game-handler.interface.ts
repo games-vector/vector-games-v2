@@ -100,4 +100,18 @@ export interface IGameHandler {
    * @returns Socket.IO server instance or null if not initialized
    */
   getServer?(): any;
+
+  /**
+   * Optional: Provide custom game config response for get-game-config action
+   * 
+   * If implemented, this method will be called by CriticalHandlersService
+   * to get the game config response. If not implemented, defaults from
+   * DEFAULTS config will be used.
+   * 
+   * This allows games to provide custom config responses while still
+   * benefiting from automatic critical handler registration.
+   * 
+   * @returns Game config object with betConfig, coefficients, and lastWin
+   */
+  getGameConfigResponse?(): any;
 }
