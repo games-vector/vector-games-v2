@@ -163,27 +163,35 @@ export class ChickenRoadGameHandler implements IGameHandler {
   }
 
   getGameConfigResponse(): any {
-    const defaultBetConfig = DEFAULTS.GAMES.CHICKEN_ROAD.betConfig;
-    const defaultCoefficients = DEFAULTS.GAMES.CHICKEN_ROAD.coefficients;
-    const defaultLastWin = DEFAULTS.GAMES.CHICKEN_ROAD.LAST_WIN;
-    
-    return {
-      betConfig: {
-        minBetAmount: defaultBetConfig.minBetAmount,
-        maxBetAmount: defaultBetConfig.maxBetAmount,
-        maxWinAmount: defaultBetConfig.maxWinAmount,
-        defaultBetAmount: defaultBetConfig.defaultBetAmount,
-        betPresets: defaultBetConfig.betPresets,
-        decimalPlaces: defaultBetConfig.decimalPlaces,
-        currency: defaultBetConfig.currency,
-      },
-      coefficients: defaultCoefficients,
-      lastWin: {
-        username: defaultLastWin.DEFAULT_USERNAME,
-        winAmount: defaultLastWin.DEFAULT_WIN_AMOUNT,
-        currency: defaultBetConfig.currency,
-      },
-    };
+    try {
+      const defaultBetConfig = DEFAULTS.GAMES.CHICKEN_ROAD.betConfig;
+      const defaultCoefficients = DEFAULTS.GAMES.CHICKEN_ROAD.coefficients;
+      const defaultLastWin = DEFAULTS.GAMES.CHICKEN_ROAD.LAST_WIN;
+      
+      const response = {
+        betConfig: {
+          minBetAmount: defaultBetConfig.minBetAmount,
+          maxBetAmount: defaultBetConfig.maxBetAmount,
+          maxWinAmount: defaultBetConfig.maxWinAmount,
+          defaultBetAmount: defaultBetConfig.defaultBetAmount,
+          betPresets: defaultBetConfig.betPresets,
+          decimalPlaces: defaultBetConfig.decimalPlaces,
+          currency: defaultBetConfig.currency,
+        },
+        coefficients: defaultCoefficients,
+        lastWin: {
+          username: defaultLastWin.DEFAULT_USERNAME,
+          winAmount: defaultLastWin.DEFAULT_WIN_AMOUNT,
+          currency: defaultBetConfig.currency,
+        },
+      };
+      
+      this.logger.debug(`[getGameConfigResponse] Returning config for gameCode=${this.gameCode}`);
+      return response;
+    } catch (error: any) {
+      this.logger.error(`[getGameConfigResponse] Error: ${error.message}`, error.stack);
+      throw error;
+    }
   }
 
   registerMessageHandlers(context: GameConnectionContext): void {

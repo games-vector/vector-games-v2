@@ -267,9 +267,11 @@ export class CommonGameGateway
     };
 
     try {
-      this.registerCriticalHandlers(handler, context);
       await handler.handleConnection(context);
       handler.registerMessageHandlers(context);
+      // Register critical handlers AFTER regular handlers to ensure they're not removed
+      // Critical handlers must be last so they're called first (prependListener)
+      this.registerCriticalHandlers(handler, context);
     } catch (error: any) {
       this.logger.error(
         `[WS_CONNECT_ERROR] socketId=${client.id} gameCode=${gameCode} error=${error.message}`,
@@ -287,11 +289,16 @@ export class CommonGameGateway
     handler: IGameHandler,
     context: GameConnectionContext,
   ): void {
-    const getGameConfigResponse = (handler as any).getGameConfigResponse?.bind(handler);
-    this.criticalHandlersService.registerGetGameConfigHandler(
-      context,
-      getGameConfigResponse,
-    );
+    try {
+      const getGameConfigResponse = (handler as any).getGameConfigResponse?.bind(handler);
+      this.criticalHandlersService.registerGetGameConfigHandler(
+        context,
+        getGameConfigResponse,
+      );
+      this.logger.log(`[GATEWAY] Critical handlers registered for gameCode=${context.gameCode} socket=${context.client.id}`);
+    } catch (error: any) {
+      this.logger.error(`[GATEWAY] Failed to register critical handlers: ${error.message}`, error.stack);
+    }
   }
 
   /**

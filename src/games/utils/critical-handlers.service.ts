@@ -30,25 +30,38 @@ export class CriticalHandlersService {
     const { client, gameCode } = context;
 
     const handler = (data: any, ack?: Function) => {
-      if (typeof ack !== 'function') return;
+      if (typeof ack !== 'function') {
+        this.logger.warn(`[CRITICAL_HANDLER] No ACK function provided for get-game-config: socket=${client.id}`);
+        return;
+      }
 
       const rawAction: string | undefined = data?.action;
-      if (!rawAction || rawAction !== 'get-game-config') {
+      if (!rawAction || (rawAction !== 'get-game-config' && rawAction !== 'GET_GAME_CONFIG')) {
         return; // Not our action, let other handlers process it
       }
 
-      if (!gameCode) {
-        return ack({ error: { message: 'missing_game_code' } });
+      this.logger.log(`[CRITICAL_HANDLER] Handling get-game-config: socket=${client.id} gameCode=${gameCode}`);
+
+      try {
+        if (!gameCode) {
+          this.logger.warn(`[CRITICAL_HANDLER] Missing gameCode: socket=${client.id}`);
+          return ack({ error: { message: 'missing_game_code' } });
+        }
+
+        const response = getGameConfigResponse 
+          ? getGameConfigResponse()
+          : this.getDefaultGameConfigResponse(gameCode);
+
+        this.logger.log(`[CRITICAL_HANDLER] Sending get-game-config response: socket=${client.id} gameCode=${gameCode}`);
+        ack(response);
+      } catch (error: any) {
+        this.logger.error(`[CRITICAL_HANDLER] Error handling get-game-config: socket=${client.id} error=${error.message}`, error.stack);
+        ack({ error: { message: 'get_game_config_failed' } });
       }
-
-      const response = getGameConfigResponse 
-        ? getGameConfigResponse()
-        : this.getDefaultGameConfigResponse(gameCode);
-
-      ack(response);
     };
 
     client.prependListener('gameService', handler);
+    this.logger.log(`[CRITICAL_HANDLER] Registered get-game-config handler: socket=${client.id} gameCode=${gameCode}`);
   }
 
   /**
