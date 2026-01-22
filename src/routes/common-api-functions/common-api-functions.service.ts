@@ -182,9 +182,9 @@ export class CommonApiFunctionsService {
     const currency = existing.currency || DEFAULTS.PLATFORM.CURRENCY.DEFAULT;
     const adaptive = DEFAULTS.PLATFORM.USER.DEFAULT_ADAPTIVE;
     
-    // Build URL with gameCode for unified frontend routing
-    // Frontend will use gameCode to route to appropriate game component
-    const url = `https://${host}/index.html?gameCode=${encodeURIComponent(gameCode)}&operatorId=${encodeURIComponent(agentId)}&lang=${encodeURIComponent(lang)}&currency=${encodeURIComponent(currency)}&adaptive=${encodeURIComponent(adaptive)}&authToken=${encodeURIComponent(token)}`;
+    // Build URL with gameMode for unified frontend routing
+    // Frontend will use gameMode to route to appropriate game component
+    const url = `https://${host}/index.html?gameMode=${encodeURIComponent(gameCode)}&operatorId=${encodeURIComponent(agentId)}&lang=${encodeURIComponent(lang)}&currency=${encodeURIComponent(currency)}&adaptive=${encodeURIComponent(adaptive)}&authToken=${encodeURIComponent(token)}`;
 
     await this.userSessionService.addSession(userId, agentId, gameCode);
 
