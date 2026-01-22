@@ -61,6 +61,36 @@ export class SugarDaddyGameHandler implements IGameHandler {
     return this.server;
   }
 
+  getGameConfigResponse(): any {
+    try {
+      const defaultBetConfig = DEFAULTS.AVIATOR.BET_CONFIG;
+      
+      const response = {
+        betConfig: {
+          minBetAmount: defaultBetConfig.minBetAmount,
+          maxBetAmount: defaultBetConfig.maxBetAmount,
+          maxWinAmount: defaultBetConfig.maxWinAmount,
+          defaultBetAmount: defaultBetConfig.defaultBetAmount,
+          betPresets: defaultBetConfig.betPresets,
+          decimalPlaces: defaultBetConfig.decimalPlaces,
+          currency: defaultBetConfig.currency || DEFAULTS.AVIATOR.DEFAULT_CURRENCY,
+        },
+        coefficients: {},
+        lastWin: {
+          username: 'Player',
+          winAmount: '0',
+          currency: defaultBetConfig.currency || DEFAULTS.AVIATOR.DEFAULT_CURRENCY,
+        },
+      };
+      
+      this.logger.debug(`[getGameConfigResponse] Returning config for gameCode=${this.gameCode}`);
+      return response;
+    } catch (error: any) {
+      this.logger.error(`[getGameConfigResponse] Error: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
   async handleConnection(context: GameConnectionContext): Promise<void> {
     const { client, userId, agentId, operatorId, gameCode } = context;
 

@@ -117,6 +117,7 @@ const GAMES_CONFIG = {
       defaultBetAmount: '1.00',
       betPresets: ['0.5', '1', '2', '7', '10', '20'],
       decimalPlaces: '2',
+      currency: 'INR',
     },
     
     // Bet Ranges per Currency (game-specific)
@@ -129,7 +130,7 @@ const GAMES_CONFIG = {
     },
     
     // Default Currency (game-specific, overrides platform default)
-    DEFAULT_CURRENCY: 'USD',
+    DEFAULT_CURRENCY: 'INR',
 
     // Game Payloads Configuration (for WalletService integration)
     GAME_PAYLOADS: {

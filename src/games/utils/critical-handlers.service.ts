@@ -73,6 +73,7 @@ export class CriticalHandlersService {
     const gameConfig = this.getGameConfigByCode(gameCode);
     
     if (gameConfig) {
+      const currency = gameConfig.betConfig?.currency || 'INR';
       return {
         betConfig: {
           minBetAmount: gameConfig.betConfig?.minBetAmount || '0.01',
@@ -81,13 +82,13 @@ export class CriticalHandlersService {
           defaultBetAmount: gameConfig.betConfig?.defaultBetAmount || '1.00',
           betPresets: gameConfig.betConfig?.betPresets || ['0.5', '1', '2', '7'],
           decimalPlaces: gameConfig.betConfig?.decimalPlaces || '2',
-          currency: gameConfig.betConfig?.currency || 'INR',
+          currency: currency,
         },
         coefficients: gameConfig.coefficients || {},
         lastWin: {
           username: gameConfig.LAST_WIN?.DEFAULT_USERNAME || 'Player',
           winAmount: gameConfig.LAST_WIN?.DEFAULT_WIN_AMOUNT || '0',
-          currency: gameConfig.betConfig?.currency || 'INR',
+          currency: currency,
         },
       };
     }
@@ -124,6 +125,7 @@ export class CriticalHandlersService {
         LAST_WIN: {
           DEFAULT_USERNAME: 'Player',
           DEFAULT_WIN_AMOUNT: '0',
+          DEFAULT_CURRENCY: games.SUGAR_DADDY.BET_CONFIG.currency || 'INR',
         },
       };
     }
