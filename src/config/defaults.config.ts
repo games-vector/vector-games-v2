@@ -122,11 +122,7 @@ const GAMES_CONFIG = {
     
     // Bet Ranges per Currency (game-specific)
     BET_RANGES: {
-      USD: ['0.01', '200.00'],
-      EUR: ['0.01', '200.00'],
-      GBP: ['0.01', '200.00'],
       INR: ['0.01', '200.00'],
-      PKR: ['0.01', '200.00'],
     },
     
     // Default Currency (game-specific, overrides platform default)

@@ -109,10 +109,16 @@ export class SugarDaddyGameHandler implements IGameHandler {
         balance: walletBalance.balance.toString(),
       };
 
-      const betsRanges = DEFAULTS.AVIATOR.BET_RANGES;
+      const defaultCurrency = DEFAULTS.AVIATOR.DEFAULT_CURRENCY;
+      const betsRanges = {
+        [defaultCurrency]: DEFAULTS.AVIATOR.BET_RANGES[defaultCurrency] || [
+          DEFAULTS.AVIATOR.BET_CONFIG.minBetAmount,
+          DEFAULTS.AVIATOR.BET_CONFIG.maxBetAmount,
+        ],
+      };
 
       const betConfig = {
-        [DEFAULTS.AVIATOR.DEFAULT_CURRENCY]: {
+        [defaultCurrency]: {
           betPresets: DEFAULTS.AVIATOR.BET_CONFIG.betPresets,
           minBetAmount: DEFAULTS.AVIATOR.BET_CONFIG.minBetAmount,
           maxBetAmount: DEFAULTS.AVIATOR.BET_CONFIG.maxBetAmount,
@@ -144,9 +150,15 @@ export class SugarDaddyGameHandler implements IGameHandler {
         currency: DEFAULTS.AVIATOR.DEFAULT_CURRENCY,
         balance: DEFAULTS.CURRENCY.DEFAULT_BALANCE,
       };
-      const betsRanges = DEFAULTS.AVIATOR.BET_RANGES;
+      const defaultCurrency = DEFAULTS.AVIATOR.DEFAULT_CURRENCY;
+      const betsRanges = {
+        [defaultCurrency]: DEFAULTS.AVIATOR.BET_RANGES[defaultCurrency] || [
+          DEFAULTS.AVIATOR.BET_CONFIG.minBetAmount,
+          DEFAULTS.AVIATOR.BET_CONFIG.maxBetAmount,
+        ],
+      };
       const betConfig = {
-        [DEFAULTS.AVIATOR.DEFAULT_CURRENCY]: {
+        [defaultCurrency]: {
           betPresets: DEFAULTS.AVIATOR.BET_CONFIG.betPresets,
           minBetAmount: DEFAULTS.AVIATOR.BET_CONFIG.minBetAmount,
           maxBetAmount: DEFAULTS.AVIATOR.BET_CONFIG.maxBetAmount,
