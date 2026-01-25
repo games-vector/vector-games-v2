@@ -256,12 +256,13 @@ export class SugarDaddyGameHandler implements IGameHandler {
         this.logger.debug(`[WS_GET_CONFIG] Emitting ${WS_EVENTS.GAME_SERVICE_ON_GAME_CONFIG} with payload: ${JSON.stringify(configPayload)}`);
         client.emit(WS_EVENTS.GAME_SERVICE_ON_GAME_CONFIG, configPayload);
       } else if (data?.action === 'bet') {
-        // Extract bet data from the data object (betAmount, currency, betNumber are at the same level as action)
+        // Extract bet data - support both payload object and top-level fields
+        const payload = data.payload || data;
         const betPayload: PlaceBetPayload = {
-          betAmount: data.betAmount || '',
-          currency: data.currency || '',
-          coeffAuto: data.coeffAuto,
-          betNumber: data.betNumber || 0,
+          betAmount: payload.betAmount || data.betAmount || '',
+          currency: payload.currency || data.currency || '',
+          coeffAuto: payload.coeffAuto || data.coeffAuto,
+          betNumber: payload.betNumber !== undefined ? payload.betNumber : (data.betNumber !== undefined ? data.betNumber : 0),
         };
         this.logger.log(`[WS_BET] Received bet action: ${JSON.stringify(betPayload)}`);
         await this.handleBetAction(client, betPayload, userId, agentId, operatorId, gameCode, authPayload);
@@ -348,6 +349,15 @@ export class SugarDaddyGameHandler implements IGameHandler {
       ...(success ? {} : { error, code }),
     });
 
+    // Emit balance change if bet was successful and balance is available
+    if (result.success && result.balance && result.balanceCurrency) {
+      client.emit(WS_EVENTS.BALANCE_CHANGE, {
+        currency: result.balanceCurrency,
+        balance: result.balance,
+      });
+      this.logger.debug(`[BALANCE_CHANGE] Emitted after bet: balance=${result.balance} currency=${result.balanceCurrency}`);
+    }
+
     if (result.success && result.bet) {
       const gameState = await this.sugarDaddyGameService.getCurrentGameState();
       if (gameState) {
@@ -396,6 +406,16 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
     if (result.success && result.bet) {
       this.sendAutoCashoutEvent(userId, result.bet);
+      
+      // Emit balance change if cashout was successful and balance is available
+      if (result.balance && result.balanceCurrency) {
+        client.emit(WS_EVENTS.BALANCE_CHANGE, {
+          currency: result.balanceCurrency,
+          balance: result.balance,
+        });
+        this.logger.debug(`[BALANCE_CHANGE] Emitted after cashout: balance=${result.balance} currency=${result.balanceCurrency}`);
+      }
+      
       const gameState = await this.sugarDaddyGameService.getCurrentGameState();
       if (gameState) {
         this.broadcastGameStateChange(gameCode, gameState);

@@ -25,6 +25,8 @@ export interface PlaceBetResponse {
   isNextRoundAddBet?: boolean; // true if queued for next round
   betNumber?: number;
   bet?: BetData; // Keep for backward compatibility
+  balance?: string; // Balance after bet placement
+  balanceCurrency?: string; // Currency of the balance
 }
 
 @Injectable()
@@ -258,6 +260,8 @@ export class SugarDaddyGameBetService {
       isNextRoundAddBet: false,
       betNumber,
       bet: betData,
+      balance: walletResult.balance ? String(walletResult.balance) : undefined,
+      balanceCurrency: payload.currency,
     });
   }
 
@@ -354,6 +358,8 @@ export class SugarDaddyGameBetService {
         coeffAuto: payload.coeffAuto,
         userAvatar,
       },
+      balance: walletResult.balance ? String(walletResult.balance) : undefined,
+      balanceCurrency: payload.currency,
     });
   }
 
@@ -481,7 +487,7 @@ export class SugarDaddyGameBetService {
     operatorId: string,
     gameCode: string,
     playerGameId: string,
-  ): Promise<{ success: boolean; error?: string; code?: string; bet?: BetData }> {
+  ): Promise<{ success: boolean; error?: string; code?: string; bet?: BetData; balance?: string; balanceCurrency?: string }> {
     try {
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
       if (!activeRound || activeRound.status !== GameStatus.IN_GAME) {
@@ -580,11 +586,19 @@ export class SugarDaddyGameBetService {
         this.logger.error(
           `[CASHOUT] Wallet settlement failed: user=${userId} status=${settleResult.status}`,
         );
+        return createErrorResponse(
+          'Wallet settlement failed',
+          SUGAR_DADDY_ERROR_CODES.BET_REJECTED,
+        );
       }
 
       await this.redisService.del(mappingKey);
 
-      return createSuccessResponse({ bet: cashedOutBet });
+      return createSuccessResponse({ 
+        bet: cashedOutBet,
+        balance: settleResult.balance ? String(settleResult.balance) : undefined,
+        balanceCurrency: cashedOutBet.currency,
+      });
     } catch (error: any) {
       this.logger.error(`[CASHOUT_ERROR] user=${userId} error=${error.message}`);
       return createErrorResponse(
