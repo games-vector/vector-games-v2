@@ -252,7 +252,9 @@ export class SugarDaddyGameHandler implements IGameHandler {
         }
       } else if (data?.action === 'get-game-config') {
         this.logger.log(`[WS_GET_CONFIG] Client ${client.id} requested game config`);
-        client.emit(WS_EVENTS.GAME_SERVICE_ON_GAME_CONFIG, {});
+        const configPayload = {};
+        this.logger.debug(`[WS_GET_CONFIG] Emitting ${WS_EVENTS.GAME_SERVICE_ON_GAME_CONFIG} with payload: ${JSON.stringify(configPayload)}`);
+        client.emit(WS_EVENTS.GAME_SERVICE_ON_GAME_CONFIG, configPayload);
       } else if (data?.action === 'bet') {
         // Extract bet data from the data object (betAmount, currency, betNumber are at the same level as action)
         const betPayload: PlaceBetPayload = {
