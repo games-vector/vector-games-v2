@@ -4,6 +4,7 @@ import { JwtTokenModule, UserModule, AgentsModule } from '@games-vector/game-cor
 import { RedisModule } from '../../modules/redis/redis.module';
 import { GameModule } from '../../modules/games/game.module';
 import { GameService } from '../../modules/games/game.service';
+import { GameConfigModule } from '../../modules/game-config/game-config.module';
 import { SugarDaddyGameService } from './sugar-daddy-game.service';
 import { SugarDaddyGameHandler } from './sugar-daddy-game.handler';
 import { SugarDaddyGameScheduler } from './sugar-daddy-game.scheduler';
@@ -27,6 +28,7 @@ import { initializeGameModule, IBaseGameModule } from '../interfaces/base-game-m
     AgentsModule, // For AgentsService
     RedisModule,
     GameModule, // Import GameModule to access GameService
+    GameConfigModule, // Import GameConfigModule to access GameConfigService
     // WalletService and BetService are available globally via WalletConfigModule and BetConfigModule
   ],
   providers: [
