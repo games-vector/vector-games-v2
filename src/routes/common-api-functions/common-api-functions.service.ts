@@ -180,11 +180,18 @@ export class CommonApiFunctionsService {
     
     const lang = existing.language || DEFAULTS.PLATFORM.USER.DEFAULT_LANGUAGE;
     const currency = existing.currency || DEFAULTS.PLATFORM.CURRENCY.DEFAULT;
-    const adaptive = DEFAULTS.PLATFORM.USER.DEFAULT_ADAPTIVE;
     
     // Build URL with gameMode for unified frontend routing
     // Frontend will use gameMode to route to appropriate game component
-    const url = `https://${host}/index.html?gameMode=${encodeURIComponent(gameCode)}&operatorId=${encodeURIComponent(agentId)}&lang=${encodeURIComponent(lang)}&currency=${encodeURIComponent(currency)}&adaptive=${encodeURIComponent(adaptive)}&authToken=${encodeURIComponent(token)}`;
+    let url: string;
+    if (gameCode === 'sugar-daddy') {
+      // Sugar Daddy specific format: /game.html with theme, gameCustomizationId, lobbyUrl parameters
+      url = `https://${host}/game.html?gameMode=${encodeURIComponent(gameCode)}&operatorId=${encodeURIComponent(agentId)}&authToken=${encodeURIComponent(token)}&currency=${encodeURIComponent(currency)}&lang=${encodeURIComponent(lang)}&theme=&gameCustomizationId=&lobbyUrl=`;
+    } else {
+      // Default format for other games: /index.html with adaptive parameter
+      const adaptive = DEFAULTS.PLATFORM.USER.DEFAULT_ADAPTIVE;
+      url = `https://${host}/index.html?gameMode=${encodeURIComponent(gameCode)}&operatorId=${encodeURIComponent(agentId)}&lang=${encodeURIComponent(lang)}&currency=${encodeURIComponent(currency)}&adaptive=${encodeURIComponent(adaptive)}&authToken=${encodeURIComponent(token)}`;
+    }
 
     await this.userSessionService.addSession(userId, agentId, gameCode);
 
