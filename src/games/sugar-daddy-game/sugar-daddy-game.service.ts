@@ -4,6 +4,8 @@ import { GameStatus, GameStateChangePayload, CoefficientChangePayload, BetData, 
 import { RedisService } from '../../modules/redis/redis.service';
 import { DEFAULTS } from '../../config/defaults.config';
 
+import { GameConfigService } from '../../modules/game-config/game-config.service';
+
 interface ActiveRound {
   roundId: number;
   gameUUID: string;
@@ -46,17 +48,22 @@ export class SugarDaddyGameService {
   private readonly REDIS_KEY_LEADER_LOCK = 'sugar-daddy:engine_lock';
   private readonly COEFFICIENT_HISTORY_LIMIT = 50;
   private readonly LEADER_LOCK_TTL = 30; // 30 seconds - leader must renew every 15 seconds
-  private readonly RTP = DEFAULTS.AVIATOR.RTP; // Return to Player percentage (90-99%) - Note: AVIATOR config key is used for Sugar Daddy
+  private rtp: number | null = null;
 
   constructor(
     private readonly redisService: RedisService,
-  ) {}
+    private readonly gameConfigService: GameConfigService,
+  ) { }
 
   /**
    * Start a new game round (starts in WAIT_GAME state)
    * Stores state in Redis for multi-pod access
    */
   async startNewRound(): Promise<ActiveRound> {
+    if(this.rtp === null) {
+      await this.loadRTP('sugar-daddy');
+    }
+
     this.roundCounter++;
     const roundId = Date.now();
     const gameUUID = uuidv4();
@@ -74,7 +81,7 @@ export class SugarDaddyGameService {
       clientsSeeds: [],
       combinedHash: '',
       decimal: '',
-      isRunning: false, 
+      isRunning: false,
     };
 
     this.activeRound.crashCoeff = await this.calculateCrashCoefficient(serverSeed);
@@ -96,7 +103,7 @@ export class SugarDaddyGameService {
   async startGame(): Promise<void> {
     // Load from Redis first (in case another pod updated it)
     await this.loadActiveRoundFromRedis();
-    
+
     if (!this.activeRound || this.activeRound.status !== GameStatus.WAIT_GAME) {
       throw new Error('Cannot start game: not in WAIT_GAME state');
     }
@@ -121,7 +128,7 @@ export class SugarDaddyGameService {
   async getCurrentGameState(): Promise<GameStateChangePayload | null> {
     // Try to load from Redis first (for multi-pod)
     await this.loadActiveRoundFromRedis();
-    
+
     if (!this.activeRound) {
       return null;
     }
@@ -177,7 +184,7 @@ export class SugarDaddyGameService {
   async getCurrentCoefficient(): Promise<CoefficientChangePayload | null> {
     // Load from Redis first
     await this.loadActiveRoundFromRedis();
-    
+
     if (!this.activeRound || !this.activeRound.isRunning) {
       return null;
     }
@@ -195,7 +202,7 @@ export class SugarDaddyGameService {
   async updateCoefficient(): Promise<boolean> {
     // Load from Redis first (in case another pod updated it)
     await this.loadActiveRoundFromRedis();
-    
+
     if (!this.activeRound || !this.activeRound.isRunning) {
       return false;
     }
@@ -231,7 +238,7 @@ export class SugarDaddyGameService {
   async getAutoCashoutBets(): Promise<Array<{ playerGameId: string; bet: BetData }>> {
     // Load from Redis first
     await this.loadActiveRoundFromRedis();
-    
+
     if (!this.activeRound) {
       return [];
     }
@@ -263,7 +270,7 @@ export class SugarDaddyGameService {
    */
   async markBetAsAutoCashedOut(playerGameId: string, coeffWin: string, winAmount: string): Promise<void> {
     await this.loadActiveRoundFromRedis();
-    
+
     if (!this.activeRound) {
       return;
     }
@@ -273,10 +280,10 @@ export class SugarDaddyGameService {
       bet.coeffWin = coeffWin;
       bet.winAmount = winAmount;
       this.activeRound.bets.set(playerGameId, bet);
-      
+
       // Save to Redis
       await this.saveActiveRoundToRedis();
-      
+
       this.logger.log(
         `[AUTO_CASHOUT_MARKED] playerGameId=${playerGameId} coeff=${coeffWin} winAmount=${winAmount}`,
       );
@@ -289,7 +296,7 @@ export class SugarDaddyGameService {
    */
   async endRound(): Promise<void> {
     await this.loadActiveRoundFromRedis();
-    
+
     if (!this.activeRound) {
       return;
     }
@@ -348,22 +355,22 @@ export class SugarDaddyGameService {
 
   async addBet(bet: BetData): Promise<void> {
     await this.loadActiveRoundFromRedis();
-    
+
     if (!this.activeRound || this.activeRound.status !== GameStatus.WAIT_GAME) {
       throw new Error('Bets can only be placed during WAIT_GAME state');
     }
 
     this.activeRound.bets.set(bet.playerGameId, bet);
-    
+
     // Save to Redis immediately
     await this.saveActiveRoundToRedis();
-    
+
     this.logger.debug(`[SUGAR_DADDY] Bet added: playerGameId=${bet.playerGameId} amount=${bet.betAmount}`);
   }
 
   async cashOutBet(playerGameId: string, currentCoeff: number): Promise<BetData | null> {
     await this.loadActiveRoundFromRedis();
-    
+
     if (!this.activeRound || this.activeRound.status !== GameStatus.IN_GAME) {
       throw new Error('Cannot cash out: game not in IN_GAME state');
     }
@@ -397,7 +404,7 @@ export class SugarDaddyGameService {
 
   async getBet(playerGameId: string): Promise<BetData | null> {
     await this.loadActiveRoundFromRedis();
-    
+
     if (!this.activeRound) {
       return null;
     }
@@ -406,7 +413,7 @@ export class SugarDaddyGameService {
 
   async getUserBets(userId: string): Promise<BetData[]> {
     await this.loadActiveRoundFromRedis();
-    
+
     if (!this.activeRound) {
       return [];
     }
@@ -451,23 +458,19 @@ export class SugarDaddyGameService {
     const min = 1.00;
     const max = 10.00;
     const random = Math.random();
-    
-    // Convert RTP percentage to distribution exponent
-    // RTP 90% → exponent 0.3 (more low crashes)
-    // RTP 95% → exponent 0.525 (balanced)
-    // RTP 97% → exponent 0.615 (fewer low crashes)
-    // RTP 99% → exponent 0.705 (very few low crashes)
-    const rtpExponent = 0.3 + (this.RTP - 90) * 0.045;
-    
-    // Clamp exponent to reasonable range (0.2 to 0.8)
+
+    // Use cached RTP or fallback to default
+    const rtp = this.rtp || DEFAULTS.GAMES.SUGAR_DADDY.RTP;
+
+    const rtpExponent = 0.3 + (rtp - 90) * 0.045;
     const exponent = Math.max(0.2, Math.min(0.8, rtpExponent));
-    
+
     const coeff = min + (max - min) * Math.pow(random, exponent);
-    
+
     this.logger.debug(
-      `[RTP] Calculated crash coefficient: coeff=${coeff.toFixed(2)} RTP=${this.RTP}% exponent=${exponent.toFixed(3)}`,
+      `[RTP] Calculated crash coefficient: coeff=${coeff.toFixed(2)} RTP=${rtp}% exponent=${exponent.toFixed(3)}`,
     );
-    
+
     return parseFloat(coeff.toFixed(2));
   }
 
@@ -485,10 +488,10 @@ export class SugarDaddyGameService {
     try {
       const redisClient = this.redisService.getClient();
       const historyKey = this.REDIS_KEY_COEFFICIENT_HISTORY;
-      
+
       // Get last N entries from Redis list
       const historyData = await redisClient.lrange(historyKey, 0, limit - 1);
-      
+
       if (!historyData || historyData.length === 0) {
         return [];
       }
@@ -528,14 +531,14 @@ export class SugarDaddyGameService {
       if (!combinedHash || !decimal) {
         // Generate combined hash from server seed and client seeds
         const crypto = require('crypto');
-        const seedString = this.activeRound.serverSeed + 
+        const seedString = this.activeRound.serverSeed +
           this.activeRound.clientsSeeds.map(c => c.seed).join('');
         combinedHash = crypto.createHash('sha256').update(seedString).digest('hex');
-        
+
         // Calculate decimal (convert hex to decimal)
         const hexValue = combinedHash.substring(0, 16);
         decimal = (parseInt(hexValue, 16) / Math.pow(16, 16)).toExponential();
-        
+
         this.activeRound.combinedHash = combinedHash;
         this.activeRound.decimal = decimal;
       }
@@ -555,7 +558,7 @@ export class SugarDaddyGameService {
 
       // Add to beginning of list (newest first)
       await redisClient.lpush(historyKey, JSON.stringify(historyEntry));
-      
+
       // Trim list to keep only last N entries
       await redisClient.ltrim(historyKey, 0, this.COEFFICIENT_HISTORY_LIMIT - 1);
 
@@ -574,14 +577,14 @@ export class SugarDaddyGameService {
    */
   async queueBetForNextRound(pendingBet: PendingBet): Promise<void> {
     const userPendingBetKey = `${this.REDIS_KEY_PENDING_BETS}:${pendingBet.userId}`;
-    
+
     await this.redisService.set(userPendingBetKey, pendingBet, this.PENDING_BET_TTL);
-    
+
     const pendingUsersKey = `${this.REDIS_KEY_PENDING_BETS}:users`;
     const redisClient = this.redisService.getClient();
     await redisClient.sadd(pendingUsersKey, pendingBet.userId);
     await redisClient.expire(pendingUsersKey, this.PENDING_BET_TTL);
-    
+
     this.logger.log(
       `[QUEUE_BET] Queued bet for next round: userId=${pendingBet.userId} amount=${pendingBet.betAmount} currency=${pendingBet.currency}`,
     );
@@ -602,18 +605,18 @@ export class SugarDaddyGameService {
   async removePendingBet(userId: string): Promise<void> {
     const userPendingBetKey = `${this.REDIS_KEY_PENDING_BETS}:${userId}`;
     const pendingUsersKey = `${this.REDIS_KEY_PENDING_BETS}:users`;
-    
+
     await this.redisService.del(userPendingBetKey);
-    
+
     const redisClient = this.redisService.getClient();
     await redisClient.srem(pendingUsersKey, userId);
-    
+
     this.logger.debug(`[REMOVE_PENDING_BET] Removed pending bet for userId=${userId}`);
   }
 
   async addPendingBetToRound(pendingBet: PendingBet, gameUUID: string): Promise<BetData> {
     await this.loadActiveRoundFromRedis();
-    
+
     const playerGameId = uuidv4();
     const betData: BetData = {
       userId: pendingBet.userId,
@@ -633,7 +636,7 @@ export class SugarDaddyGameService {
       this.activeRound.bets.set(playerGameId, betData);
       await this.saveActiveRoundToRedis();
     }
-    
+
     this.logger.log(
       `[PROCESS_PENDING_BET] Added pending bet to round: userId=${pendingBet.userId} playerGameId=${playerGameId} amount=${pendingBet.betAmount}`,
     );
@@ -653,10 +656,10 @@ export class SugarDaddyGameService {
 
     try {
       const redisClient = this.redisService.getClient();
-      
+
       // Convert Map to array for JSON serialization
       const betsArray = Array.from(this.activeRound.bets.entries());
-      
+
       const roundData = {
         roundId: this.activeRound.roundId,
         gameUUID: this.activeRound.gameUUID,
@@ -673,7 +676,7 @@ export class SugarDaddyGameService {
       };
 
       await redisClient.set(this.REDIS_KEY_ACTIVE_ROUND, JSON.stringify(roundData));
-      
+
       // Also save current state for quick access
       const gameState = await this.buildGameStatePayload();
       if (gameState) {
@@ -691,14 +694,14 @@ export class SugarDaddyGameService {
     try {
       const redisClient = this.redisService.getClient();
       const roundDataStr = await redisClient.get(this.REDIS_KEY_ACTIVE_ROUND);
-      
+
       if (!roundDataStr) {
         this.activeRound = null;
         return;
       }
 
       const roundData = JSON.parse(roundDataStr);
-      
+
       // Reconstruct Map from array
       const betsMap = new Map<string, BetData>();
       if (roundData.bets && Array.isArray(roundData.bets)) {
@@ -834,7 +837,7 @@ export class SugarDaddyGameService {
     try {
       const redisClient = this.redisService.getClient();
       const lockKey = this.REDIS_KEY_LEADER_LOCK;
-      
+
       // Try to set lock with SETNX (set if not exists)
       const result = await redisClient.set(
         lockKey,
@@ -871,7 +874,7 @@ export class SugarDaddyGameService {
     try {
       const redisClient = this.redisService.getClient();
       const lockKey = this.REDIS_KEY_LEADER_LOCK;
-      
+
       // Check if we still own the lock
       const currentLeader = await redisClient.get(lockKey);
       if (currentLeader === podId) {
@@ -893,7 +896,7 @@ export class SugarDaddyGameService {
     try {
       const redisClient = this.redisService.getClient();
       const lockKey = this.REDIS_KEY_LEADER_LOCK;
-      
+
       // Only delete if we own the lock
       const currentLeader = await redisClient.get(lockKey);
       if (currentLeader === podId) {
@@ -917,5 +920,68 @@ export class SugarDaddyGameService {
       this.logger.error(`[LEADER_ELECTION] Error checking leader: ${error.message}`);
       return false;
     }
+  }
+
+  /**
+ * Safe config getter - returns empty string on error for graceful fallback
+ */
+  private async safeGetConfig(gameCode: string, key: string): Promise<string> {
+    try {
+      const raw = await this.gameConfigService.getConfig(gameCode, key);
+      return raw || '{}';
+    } catch (e: any) {
+      this.logger.warn(`[safeGetConfig] Config key ${key} not available for ${gameCode}: ${e.message}`);
+      return '{}';
+    }
+  }
+
+  /**
+   * Try to parse JSON string, return undefined on error
+   */
+  private tryParseJson(value: string): any {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Get game config payload from database with fallback to defaults
+   * Used by handler to get betConfig and RTP
+   */
+  async getGameConfigPayload(gameCode: string): Promise<{
+    betConfig: any;
+    rtp: number;
+  }> {
+    try {
+      const betConfigRaw = await this.safeGetConfig(gameCode, 'betConfig');
+      const rtpRaw = await this.safeGetConfig(gameCode, 'RTP');
+
+      const betConfig = this.tryParseJson(betConfigRaw) || {};
+      const rtp = rtpRaw && rtpRaw !== '{}' ? parseFloat(rtpRaw) : null;
+
+      return {
+        betConfig: betConfig || DEFAULTS.GAMES.SUGAR_DADDY.BET_CONFIG,
+        rtp: rtp || DEFAULTS.GAMES.SUGAR_DADDY.RTP,
+      };
+    } catch (e: any) {
+      this.logger.error(`[getGameConfigPayload] Failed building game config payload for ${gameCode}: ${e.message}`);
+      return {
+        betConfig: DEFAULTS.GAMES.SUGAR_DADDY.BET_CONFIG,
+        rtp: DEFAULTS.GAMES.SUGAR_DADDY.RTP,
+      };
+    }
+  }
+
+  /**
+   * Load RTP from database and cache it
+   * Call this when game starts or when config might have changed
+   */
+  async loadRTP(gameCode: string): Promise<number> {
+    const config = await this.getGameConfigPayload(gameCode);
+    this.rtp = config.rtp;
+    this.logger.log(`[loadRTP] Loaded RTP=${this.rtp}% for gameCode=${gameCode}`);
+    return this.rtp;
   }
 }

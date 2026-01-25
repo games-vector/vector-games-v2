@@ -109,7 +109,7 @@ export class ChickenRoadGameHandler implements IGameHandler {
     };
 
     const { betConfig: dbBetConfig } = await this.chickenRoadGameService.getGameConfigPayload(gameCode);
-    
+
     // Use default config values if database config is empty or missing required fields
     const defaultBetConfig = DEFAULTS.GAMES.CHICKEN_ROAD.betConfig;
     const betConfig = {

@@ -46,7 +46,7 @@ export class SugarDaddyGameHandler implements IGameHandler {
     private readonly userService: UserService,
     private readonly gameService: GameService,
     private readonly agentsService: AgentsService,
-  ) {}
+  ) { }
 
   setOnRoundEndCallback(callback: () => void): void {
     this.onRoundEndCallback = callback;
@@ -63,8 +63,10 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
   getGameConfigResponse(): any {
     try {
-      const defaultBetConfig = DEFAULTS.AVIATOR.BET_CONFIG;
-      
+      // This will be called asynchronously, so we need to handle it properly
+      // For now, return defaults - we'll update handleConnection to use DB configs
+      const defaultBetConfig = DEFAULTS.GAMES.SUGAR_DADDY.BET_CONFIG;
+
       const response = {
         betConfig: {
           minBetAmount: defaultBetConfig.minBetAmount,
@@ -73,16 +75,16 @@ export class SugarDaddyGameHandler implements IGameHandler {
           defaultBetAmount: defaultBetConfig.defaultBetAmount,
           betPresets: defaultBetConfig.betPresets,
           decimalPlaces: defaultBetConfig.decimalPlaces,
-          currency: defaultBetConfig.currency || DEFAULTS.AVIATOR.DEFAULT_CURRENCY,
+          currency: defaultBetConfig.currency || DEFAULTS.GAMES.SUGAR_DADDY.DEFAULT_CURRENCY,
         },
         coefficients: {},
         lastWin: {
           username: 'Player',
           winAmount: '0',
-          currency: defaultBetConfig.currency || DEFAULTS.AVIATOR.DEFAULT_CURRENCY,
+          currency: defaultBetConfig.currency || DEFAULTS.GAMES.SUGAR_DADDY.DEFAULT_CURRENCY,
         },
       };
-      
+
       this.logger.debug(`[getGameConfigResponse] Returning config for gameCode=${this.gameCode}`);
       return response;
     } catch (error: any) {
@@ -96,36 +98,41 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
     const gameRoom = `game:${gameCode}`;
     client.join(gameRoom);
-    
+
     const rooms = Array.from(client.rooms);
     this.logger.log(
       `[WS_CONNECT] socketId=${client.id} user=${userId} agent=${agentId} gameCode=${gameCode} operatorId=${operatorId} joinedRoom=${gameRoom} allRooms=[${rooms.join(', ')}]`,
     );
 
     try {
-      const walletBalance = await this.walletService.getBalance(agentId, userId);
-      const balance = {
-        currency: DEFAULTS.AVIATOR.DEFAULT_CURRENCY,
-        balance: walletBalance.balance.toString(),
+      const configPayload = await this.sugarDaddyGameService.getGameConfigPayload(gameCode);
+      const dbBetConfig = configPayload.betConfig;
+      const defaultBetConfig = DEFAULTS.GAMES.SUGAR_DADDY.BET_CONFIG;
+
+      // Use DB config with fallback to defaults
+      const betConfig = {
+        [defaultBetConfig.currency || DEFAULTS.GAMES.SUGAR_DADDY.DEFAULT_CURRENCY]: {
+          betPresets: dbBetConfig.betPresets || defaultBetConfig.betPresets,
+          minBetAmount: dbBetConfig.minBetAmount || defaultBetConfig.minBetAmount,
+          maxBetAmount: dbBetConfig.maxBetAmount || defaultBetConfig.maxBetAmount,
+          maxWinAmount: dbBetConfig.maxWinAmount || defaultBetConfig.maxWinAmount,
+          defaultBetAmount: dbBetConfig.defaultBetAmount || defaultBetConfig.defaultBetAmount,
+          decimalPlaces: dbBetConfig.decimalPlaces || defaultBetConfig.decimalPlaces,
+        },
       };
 
-      const defaultCurrency = DEFAULTS.AVIATOR.DEFAULT_CURRENCY;
+      const defaultCurrency = defaultBetConfig.currency || DEFAULTS.GAMES.SUGAR_DADDY.DEFAULT_CURRENCY;
       const betsRanges = {
-        [defaultCurrency]: DEFAULTS.AVIATOR.BET_RANGES[defaultCurrency] || [
-          DEFAULTS.AVIATOR.BET_CONFIG.minBetAmount,
-          DEFAULTS.AVIATOR.BET_CONFIG.maxBetAmount,
+        [defaultCurrency]: [
+          dbBetConfig.minBetAmount || defaultBetConfig.minBetAmount,
+          dbBetConfig.maxBetAmount || defaultBetConfig.maxBetAmount,
         ],
       };
 
-      const betConfig = {
-        [defaultCurrency]: {
-          betPresets: DEFAULTS.AVIATOR.BET_CONFIG.betPresets,
-          minBetAmount: DEFAULTS.AVIATOR.BET_CONFIG.minBetAmount,
-          maxBetAmount: DEFAULTS.AVIATOR.BET_CONFIG.maxBetAmount,
-          maxWinAmount: DEFAULTS.AVIATOR.BET_CONFIG.maxWinAmount,
-          defaultBetAmount: DEFAULTS.AVIATOR.BET_CONFIG.defaultBetAmount,
-          decimalPlaces: DEFAULTS.AVIATOR.BET_CONFIG.decimalPlaces,
-        },
+      const walletBalance = await this.walletService.getBalance(agentId, userId);
+      const balance = {
+        currency: defaultCurrency,
+        balance: walletBalance.balance.toString(),
       };
 
       const userData = await this.userService.findOne(userId, agentId);
@@ -217,7 +224,7 @@ export class SugarDaddyGameHandler implements IGameHandler {
         this.sendOnConnectGame(client).catch((error) => {
           this.logger.error(`[WS_JOIN] Error sending onConnectGame: ${error.message}`);
         });
-        
+
         const gameState = await this.sugarDaddyGameService.getCurrentGameState();
         if (gameState) {
           this.logger.log(`[WS_JOIN] Sending current game state to client ${client.id}: status=${gameState.status} roundId=${gameState.roundId}`);
@@ -449,7 +456,7 @@ export class SugarDaddyGameHandler implements IGameHandler {
     const eventName = WS_EVENTS.GAME_SERVICE_ON_CHANGE_COEFF;
     const room = gameCode ? `game:${gameCode}` : null;
     this.logger.debug(`[BROADCAST] Sending ${eventName} to room=${room || 'all'} coeff=${payload.coeff} gameCode=${gameCode || 'N/A'}`);
-    
+
     if (room) {
       this.server.to(room).emit(eventName, payload);
     } else {
@@ -466,7 +473,7 @@ export class SugarDaddyGameHandler implements IGameHandler {
     const eventName = WS_EVENTS.GAME_SERVICE_ON_CHANGE_STATE;
     const room = gameCode ? `game:${gameCode}` : null;
     this.logger.debug(`[BROADCAST] Sending ${eventName} to room=${room || 'all'} status=${payload.status} roundId=${payload.roundId} gameCode=${gameCode || 'N/A'}`);
-    
+
     if (room) {
       this.server.to(room).emit(eventName, payload);
     } else {
@@ -477,17 +484,17 @@ export class SugarDaddyGameHandler implements IGameHandler {
   // Helper methods
   private async sendOnConnectGame(client: Socket): Promise<void> {
     const userId = client.data?.userId;
-    
+
     if (!userId) {
       this.logger.warn('[SEND_ON_CONNECT_GAME] No userId found in client data');
       return;
     }
 
     const myBets = await this.sugarDaddyGameService.getUserBets(userId);
-    
+
     const pendingBet = await this.sugarDaddyGameService.getPendingBet(userId);
     const myNextGameBets: BetData[] = [];
-    
+
     if (pendingBet) {
       myNextGameBets.push({
         userId: pendingBet.userId,
@@ -503,7 +510,7 @@ export class SugarDaddyGameHandler implements IGameHandler {
         userAvatar: pendingBet.userAvatar,
       });
     }
-    
+
     const isNextRoundBetExist = myNextGameBets.length > 0;
 
     const gameState = await this.sugarDaddyGameService.getCurrentGameState();
@@ -552,10 +559,10 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
     this.coefficientUpdateInterval = setInterval(async () => {
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
-      
+
       if (activeRound && activeRound.status === GameStatus.IN_GAME && activeRound.isRunning) {
         const updated = await this.sugarDaddyGameService.updateCoefficient();
-        
+
         const coeff = await this.sugarDaddyGameService.getCurrentCoefficient();
         if (coeff) {
           this.logger.debug(`[COEFF_BROADCAST] Broadcasting coefficient: ${coeff.coeff}`);
@@ -647,7 +654,7 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
       const autoCoeff = parseFloat(bet.coeffAuto || '0');
       const cashedOutBet = await this.sugarDaddyGameService.cashOutBet(playerGameId, autoCoeff);
-      
+
       if (!cashedOutBet) {
         this.logger.error(
           `[AUTO_CASHOUT] Failed to cash out bet: playerGameId=${playerGameId}`,
