@@ -87,24 +87,8 @@ export class GameApiRoutesService {
     };
   }
 
-  async getOnlineCounter(token: string): Promise<OnlineCounterResponse> {
-    this.logger.log(`[getOnlineCounter] Request received`);
-
-    try {
-      const decoded = await this.jwtTokenService.verifyToken(token);
-      this.logger.log(
-        `[getOnlineCounter] Token verified - operator_id: ${decoded['operator_id'] || 'N/A'}`,
-      );
-    } catch (error) {
-      this.logger.warn(
-        `[getOnlineCounter] Token verification failed - error: ${error.message}`,
-      );
-      throw new UnauthorizedException('Invalid or expired token');
-    }
-
-    this.logger.log(
-      `[getOnlineCounter] SUCCESS - Returning online counter data`,
-    );
+  async getOnlineCounter(): Promise<OnlineCounterResponse> {
+    this.logger.log(`[getOnlineCounter] Request received (no authentication required)`);
 
     const actualLoggedInUsers = await this.userSessionService.getLoggedInUserCount();
     const pumpValue = Math.floor(Math.random() * (15000 - 11000 + 1)) + 11000;

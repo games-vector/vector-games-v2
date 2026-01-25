@@ -2,9 +2,7 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
   Post,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AuthLoginDto, AuthLoginResponse } from './DTO/auth-login.dto';
@@ -23,17 +21,8 @@ export class GameApiRoutesController {
   }
 
   @Get('online-counter/v1/data')
-  async getOnlineCounter(
-    @Headers('authorization') authorization: string,
-  ): Promise<OnlineCounterResponse> {
-    if (!authorization || !authorization.startsWith('Bearer ')) {
-      throw new UnauthorizedException(
-        'Missing or invalid authorization header',
-      );
-    }
-
-    const token = authorization.substring(7);
-    return this.service.getOnlineCounter(token);
+  async getOnlineCounter(): Promise<OnlineCounterResponse> {
+    return this.service.getOnlineCounter();
   }
 
   @Get('games')
