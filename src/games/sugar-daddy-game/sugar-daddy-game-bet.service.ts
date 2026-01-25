@@ -497,7 +497,85 @@ export class SugarDaddyGameBetService {
         );
       }
 
-      const bet = await this.sugarDaddyGameService.getBet(playerGameId);
+      let bet = await this.sugarDaddyGameService.getBet(playerGameId);
+      
+      // If bet not found in active round, check if it's a pending bet
+      if (!bet) {
+        this.logger.debug(
+          `[CASHOUT] Bet not found in active round, checking if it's pending: playerGameId=${playerGameId}`,
+        );
+        
+        // Check if this is a pending bet (tempPlayerGameId from queueBetForNextRound)
+        const pendingBetMappingKey = `sugar-daddy:pending_bet:${playerGameId}`;
+        const pendingBetUserId = await this.redisService.get<string>(pendingBetMappingKey);
+        
+        if (pendingBetUserId && pendingBetUserId === userId) {
+          // This is a pending bet that hasn't been processed yet
+          const pendingBet = await this.sugarDaddyGameService.getPendingBet(userId);
+          
+          if (pendingBet) {
+            this.logger.warn(
+              `[CASHOUT] Bet is still pending (queued for next round): playerGameId=${playerGameId} userId=${userId}`,
+            );
+            return createErrorResponse(
+              'Bet is still pending and will be placed in the next round. You can cancel it instead of cashing out.',
+              SUGAR_DADDY_ERROR_CODES.BET_NOT_FOUND,
+            );
+          }
+        }
+        
+        // Check if there's a Redis mapping from playerGameId to platformTxId (for processed bets)
+        const mappingKey = `sugar-daddy:bet:${playerGameId}`;
+        const platformTxId = await this.redisService.get<string>(mappingKey);
+        
+        if (platformTxId) {
+          this.logger.debug(
+            `[CASHOUT] Found platformTxId mapping: playerGameId=${playerGameId} platformTxId=${platformTxId}`,
+          );
+          
+          // Get bet from database
+          const betRecord = await this.betService.getByExternalTxId(platformTxId, gameCode);
+          
+          if (betRecord && betRecord.userId === userId) {
+            // Check if bet is in the current active round by searching all bets
+            // Match by userId, betAmount, currency, and roundId
+            const allBets = Array.from(activeRound.bets.values());
+            bet = allBets.find(b => {
+              const betAmountMatch = Math.abs(parseFloat(b.betAmount) - parseFloat(betRecord.betAmount)) < 0.01;
+              const currencyMatch = b.currency === betRecord.currency;
+              const userIdMatch = b.userId === userId;
+              const roundIdMatch = String(activeRound.roundId) === betRecord.roundId;
+              
+              return userIdMatch && betAmountMatch && currencyMatch && roundIdMatch;
+            }) || null;
+            
+            if (bet) {
+              this.logger.log(
+                `[CASHOUT] Found bet by matching properties: playerGameId=${bet.playerGameId} originalPlayerGameId=${playerGameId} platformTxId=${platformTxId}`,
+              );
+            } else {
+              this.logger.warn(
+                `[CASHOUT] Bet found in database but not in active round: playerGameId=${playerGameId} platformTxId=${platformTxId} roundId=${betRecord.roundId} activeRoundId=${activeRound.roundId}`,
+              );
+            }
+          }
+        } else {
+          // Also check if this might be a pending bet that was just processed
+          // Search all bets in active round by userId to see if we can find a match
+          const allBets = Array.from(activeRound.bets.values());
+          const userBets = allBets.filter(b => b.userId === userId);
+          
+          if (userBets.length > 0) {
+            this.logger.debug(
+              `[CASHOUT] Found ${userBets.length} bet(s) for userId=${userId}, but playerGameId=${playerGameId} doesn't match any of them`,
+            );
+            this.logger.debug(
+              `[CASHOUT] User's bet playerGameIds: ${userBets.map(b => b.playerGameId).join(', ')}`,
+            );
+          }
+        }
+      }
+      
       if (!bet) {
         this.logger.warn(
           `[CASHOUT] Bet not found: playerGameId=${playerGameId} userId=${userId} activeRound=${activeRound ? `exists (status=${activeRound.status}, roundId=${activeRound.roundId}, betsCount=${activeRound.bets.size})` : 'null'}`,
