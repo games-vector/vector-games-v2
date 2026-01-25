@@ -406,9 +406,17 @@ export class SugarDaddyGameService {
     await this.loadActiveRoundFromRedis();
 
     if (!this.activeRound) {
+      this.logger.debug(`[GET_BET] No active round found for playerGameId=${playerGameId}`);
       return null;
     }
-    return this.activeRound.bets.get(playerGameId) || null;
+    
+    const bet = this.activeRound.bets.get(playerGameId);
+    if (!bet) {
+      this.logger.debug(
+        `[GET_BET] Bet not found in active round: playerGameId=${playerGameId} roundId=${this.activeRound.roundId} status=${this.activeRound.status} totalBets=${this.activeRound.bets.size}`,
+      );
+    }
+    return bet || null;
   }
 
   async getUserBets(userId: string): Promise<BetData[]> {

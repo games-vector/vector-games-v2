@@ -267,8 +267,11 @@ export class SugarDaddyGameHandler implements IGameHandler {
         this.logger.log(`[WS_BET] Received bet action: ${JSON.stringify(betPayload)}`);
         await this.handleBetAction(client, betPayload, userId, agentId, operatorId, gameCode, authPayload);
       } else if (data?.action === 'cashout' || data?.action === 'withdraw') {
-        // Extract playerGameId from data object
-        const cashoutPayload = data.playerGameId ? { playerGameId: data.playerGameId } : (data.payload || {});
+        // Extract playerGameId - support both payload object and top-level field
+        const payload = data.payload || {};
+        const playerGameId = payload.playerGameId || data.playerGameId;
+        const cashoutPayload = { playerGameId };
+        this.logger.log(`[WS_CASHOUT] Received cashout/withdraw action: playerGameId=${playerGameId}`);
         await this.handleCashoutAction(client, cashoutPayload, userId, agentId, operatorId, gameCode);
       } else if (data?.action === 'cancelBet') {
         // Extract cancel bet payload from data object

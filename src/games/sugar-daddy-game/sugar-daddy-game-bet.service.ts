@@ -499,11 +499,18 @@ export class SugarDaddyGameBetService {
 
       const bet = await this.sugarDaddyGameService.getBet(playerGameId);
       if (!bet) {
+        this.logger.warn(
+          `[CASHOUT] Bet not found: playerGameId=${playerGameId} userId=${userId} activeRound=${activeRound ? `exists (status=${activeRound.status}, roundId=${activeRound.roundId}, betsCount=${activeRound.bets.size})` : 'null'}`,
+        );
         return createErrorResponse(
           'Bet not found',
           SUGAR_DADDY_ERROR_CODES.BET_NOT_FOUND,
         );
       }
+      
+      this.logger.log(
+        `[CASHOUT] Bet found: playerGameId=${playerGameId} userId=${bet.userId} betAmount=${bet.betAmount} currency=${bet.currency}`,
+      );
 
       if (bet.userId !== userId) {
         return createErrorResponse(
