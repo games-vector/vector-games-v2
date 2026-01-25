@@ -223,7 +223,7 @@ export class SugarDaddyGameHandler implements IGameHandler {
     client.on('gameService', async (data: { action?: string; payload?: any; betAmount?: string; currency?: string; coeffAuto?: string; betNumber?: number; playerGameId?: string }) => {
       if (data?.action === 'join') {
         this.logger.log(`[WS_JOIN] Client ${client.id} joined game`);
-        this.sendOnConnectGame(client).catch((error) => {
+        this.sendOnConnectGame(client, userId).catch((error) => {
           this.logger.error(`[WS_JOIN] Error sending onConnectGame: ${error.message}`);
         });
 
@@ -502,11 +502,9 @@ export class SugarDaddyGameHandler implements IGameHandler {
   }
 
   // Helper methods
-  private async sendOnConnectGame(client: Socket): Promise<void> {
-    const userId = client.data?.userId;
-
+  private async sendOnConnectGame(client: Socket, userId: string): Promise<void> {
     if (!userId) {
-      this.logger.warn('[SEND_ON_CONNECT_GAME] No userId found in client data');
+      this.logger.warn('[SEND_ON_CONNECT_GAME] No userId provided');
       return;
     }
 

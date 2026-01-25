@@ -267,8 +267,13 @@ export class CommonGameGateway
     };
 
     try {
-      await handler.handleConnection(context);
+      // Register handlers FIRST to ensure they're ready before any client messages arrive
+      // This prevents race conditions where frontend sends "join" before handlers are registered
       handler.registerMessageHandlers(context);
+      
+      // Then handle connection (async operations)
+      await handler.handleConnection(context);
+      
       // Register critical handlers AFTER regular handlers to ensure they're not removed
       // Critical handlers must be last so they're called first (prependListener)
       this.registerCriticalHandlers(handler, context);
