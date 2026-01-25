@@ -5,7 +5,7 @@ import { SugarDaddyGameService } from './sugar-daddy-game.service';
 import { SugarDaddyGameBetService, PlaceBetPayload } from './sugar-daddy-game-bet.service';
 import { GameService } from '../../modules/games/game.service';
 import { GameStatus, CoefficientChangePayload, GameStateChangePayload, LatencyTestPayload, OnConnectGamePayload, BetData } from './DTO/game-state.dto';
-import { JoinChatRoomPayload } from './DTO/chat.dto';
+import { JoinChatRoomPayload, ChatMessage } from './DTO/chat.dto';
 import { DEFAULTS } from '../../config/defaults.config';
 import { IGameHandler, GameConnectionContext } from '../interfaces/game-handler.interface';
 
@@ -213,8 +213,10 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
     // Chat handler
     client.on(WS_EVENTS.CHAT_SERVICE_JOIN_ROOM, (data: JoinChatRoomPayload) => {
-      this.logger.log(`[WS_CHAT] Client ${client.id} joined chat room: ${data.chatRoom}`);
-      this.sendChatMessages(client, data.chatRoom);
+      // Support both 'language' and 'chatRoom' fields for compatibility
+      const chatRoom = data.chatRoom || data.language || 'en';
+      this.logger.log(`[WS_CHAT] Client ${client.id} joined chat room: ${chatRoom}`);
+      this.sendChatMessages(client, chatRoom);
     });
 
     // Game service handler
@@ -225,12 +227,28 @@ export class SugarDaddyGameHandler implements IGameHandler {
           this.logger.error(`[WS_JOIN] Error sending onConnectGame: ${error.message}`);
         });
 
+        // Always send game state, even if null (send default state)
         const gameState = await this.sugarDaddyGameService.getCurrentGameState();
         if (gameState) {
           this.logger.log(`[WS_JOIN] Sending current game state to client ${client.id}: status=${gameState.status} roundId=${gameState.roundId}`);
           client.emit(WS_EVENTS.GAME_SERVICE_ON_CHANGE_STATE, gameState);
         } else {
-          this.logger.warn(`[WS_JOIN] No active game state to send to client ${client.id}`);
+          // Send default game state when no active game exists
+          const defaultGameState: GameStateChangePayload = {
+            status: GameStatus.WAIT_GAME,
+            roundId: 0,
+            waitTime: null,
+            bets: {
+              totalBetsAmount: 0,
+              values: [],
+            },
+            previousBets: {
+              totalBetsAmount: 0,
+              values: [],
+            },
+          };
+          this.logger.log(`[WS_JOIN] Sending default game state to client ${client.id} (no active game)`);
+          client.emit(WS_EVENTS.GAME_SERVICE_ON_CHANGE_STATE, defaultGameState);
         }
       } else if (data?.action === 'get-game-config') {
         this.logger.log(`[WS_GET_CONFIG] Client ${client.id} requested game config`);
@@ -545,8 +563,48 @@ export class SugarDaddyGameHandler implements IGameHandler {
     client.emit(WS_EVENTS.GAME_SERVICE_ON_CONNECT_GAME, payload);
   }
 
-  private sendChatMessages(client: Socket, chatRoom: string): void {
-    const messages: any[] = [];
+  private sendChatMessages(client: Socket, language: string): void {
+    // Format chat room as "sugar-daddy-chat-{language}"
+    const chatRoom = `sugar-daddy-chat-${language}`;
+    
+    // Mock chat messages for testing
+    const messages: ChatMessage[] = [
+      {
+        chatRoom: chatRoom,
+        message: "Welcome to Sugar Daddy! Good luck! 🍀",
+        author: {
+          id: "system::system",
+          userId: "system",
+          operatorId: "system",
+          nickname: "System",
+          gameAvatar: null,
+        },
+      },
+      {
+        chatRoom: chatRoom,
+        message: "Let's play! 🎮",
+        author: {
+          id: "mock-operator-1::mock-user-1",
+          userId: "mock-user-1",
+          operatorId: "mock-operator-1",
+          nickname: "Player1",
+          gameAvatar: null,
+        },
+      },
+      {
+        chatRoom: chatRoom,
+        message: "Good luck everyone! 🍀",
+        author: {
+          id: "mock-operator-2::mock-user-2",
+          userId: "mock-user-2",
+          operatorId: "mock-operator-2",
+          nickname: "LuckyPlayer",
+          gameAvatar: null,
+        },
+      },
+    ];
+
+    this.logger.debug(`[SEND_CHAT_MESSAGES] Sending ${messages.length} mock messages for room: ${chatRoom}`);
     client.emit(WS_EVENTS.CHAT_SERVICE_MESSAGES, messages);
   }
 

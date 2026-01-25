@@ -17,5 +17,6 @@ export interface ChatMessage {
 }
 
 export interface JoinChatRoomPayload {
-  chatRoom: string; // Language code like "en", "es", "fr", etc.
+  chatRoom?: string; // Language code like "en", "es", "fr", etc.
+  language?: string; // Alternative field name (for frontend compatibility)
 }

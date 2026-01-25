@@ -88,6 +88,7 @@ export interface PendingBet {
 
 /**
  * Game state for onConnectGame response (user-specific)
+ * Note: This is different from GameStateChangePayload - it doesn't include previousBets
  */
 export interface ConnectGameState {
   bets: BetsData;
