@@ -592,6 +592,15 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
     client.emit('gameService-onCancelBet', result);
 
+    // Emit balance change if cancel was successful and balance is available
+    if (result.success && result.balance && result.balanceCurrency) {
+      client.emit(WS_EVENTS.BALANCE_CHANGE, {
+        currency: result.balanceCurrency,
+        balance: result.balance,
+      });
+      this.logger.debug(`[BALANCE_CHANGE] Emitted after cancel bet: balance=${result.balance} currency=${result.balanceCurrency}`);
+    }
+
     if (result.success) {
       const gameState = await this.sugarDaddyGameService.getCurrentGameState();
       if (gameState) {

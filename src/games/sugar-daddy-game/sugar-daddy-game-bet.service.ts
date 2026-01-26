@@ -774,7 +774,16 @@ export class SugarDaddyGameBetService {
     operatorId: string,
     gameCode: string,
     playerGameId: string,
-  ): Promise<{ success: boolean; error?: string; code?: string }> {
+  ): Promise<{ 
+    success: boolean; 
+    error?: string; 
+    code?: string;
+    userId?: string;
+    operatorId?: string;
+    playerGameId?: string;
+    balance?: string;
+    balanceCurrency?: string;
+  }> {
     try {
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
       
@@ -907,7 +916,13 @@ export class SugarDaddyGameBetService {
           `[CANCEL_BET] ✅ Successfully cancelled bet: user=${userId} playerGameId=${playerGameId} amount=${betAmount}`,
         );
 
-        return createSuccessResponse();
+        return createSuccessResponse({
+          userId,
+          operatorId,
+          playerGameId,
+          balance: refundResult.balance ? String(refundResult.balance) : undefined,
+          balanceCurrency: bet.currency,
+        });
       }
 
       // If bet is in pending queue
@@ -957,7 +972,13 @@ export class SugarDaddyGameBetService {
           `[CANCEL_BET] ✅ Successfully cancelled pending bet: user=${userId} amount=${betAmount}`,
         );
 
-        return createSuccessResponse();
+        return createSuccessResponse({
+          userId,
+          operatorId,
+          playerGameId,
+          balance: refundResult.balance ? String(refundResult.balance) : undefined,
+          balanceCurrency: pendingBet.currency,
+        });
       }
 
       return createErrorResponse(
