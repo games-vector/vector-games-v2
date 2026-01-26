@@ -408,8 +408,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
     );
 
     if (result.success && result.bet) {
-      this.sendAutoCashoutEvent(userId, result.bet);
-      
       // Emit success response with the required format
       const winAmount = result.bet.winAmount || '0';
       const coeffWin = result.bet.coeffWin || '0';
