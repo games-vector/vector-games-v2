@@ -410,6 +410,23 @@ export class SugarDaddyGameHandler implements IGameHandler {
     if (result.success && result.bet) {
       this.sendAutoCashoutEvent(userId, result.bet);
       
+      // Emit success response with the required format
+      const winAmount = result.bet.winAmount || '0';
+      const coeffWin = result.bet.coeffWin || '0';
+      
+      client.emit('gameService-onWithdrawGame', {
+        success: true,
+        result: winAmount,
+        coeffWin: coeffWin,
+        currency: result.bet.currency,
+        userId: userId,
+        playerGameId: result.bet.playerGameId,
+      });
+      
+      this.logger.log(
+        `[WS_CASHOUT_SUCCESS] user=${userId} playerGameId=${result.bet.playerGameId} winAmount=${winAmount} coeffWin=${coeffWin}`,
+      );
+      
       // Emit balance change if cashout was successful and balance is available
       if (result.balance && result.balanceCurrency) {
         client.emit(WS_EVENTS.BALANCE_CHANGE, {
