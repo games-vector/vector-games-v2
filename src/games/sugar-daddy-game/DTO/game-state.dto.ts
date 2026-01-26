@@ -84,6 +84,7 @@ export interface PendingBet {
   queuedAt: number; // timestamp when bet was queued
   platformTxId: string; // Transaction ID from wallet API when balance was deducted
   gameCode: string; // Game code from WebSocket connection
+  playerGameId: string; // The playerGameId returned to the user (preserved from queue time)
 }
 
 /**

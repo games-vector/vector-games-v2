@@ -561,7 +561,7 @@ export class SugarDaddyGameHandler implements IGameHandler {
         betAmount: pendingBet.betAmount,
         betNumber: pendingBet.betNumber,
         gameAvatar: pendingBet.gameAvatar,
-        playerGameId: '',
+        playerGameId: pendingBet.playerGameId || '',
         coeffAuto: pendingBet.coeffAuto,
         userAvatar: pendingBet.userAvatar,
       });

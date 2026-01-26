@@ -328,6 +328,7 @@ export class SugarDaddyGameBetService {
       queuedAt: Date.now(),
       platformTxId,
       gameCode,
+      playerGameId: tempPlayerGameId, // Store the playerGameId that will be returned to user
     };
 
     const pendingBetMappingKey = `sugar-daddy:pending_bet:${tempPlayerGameId}`;
@@ -424,12 +425,13 @@ export class SugarDaddyGameBetService {
           }
 
           const platformTxId = pendingBet.platformTxId;
+          // Use the original playerGameId that was returned to the user
+          const playerGameId = pendingBet.playerGameId || uuidv4();
 
           this.logger.log(
-            `[PROCESS_PENDING_BET] Processing: userId=${userId} amount=${betAmount} currency=${pendingBet.currency} platformTxId=${platformTxId}`,
+            `[PROCESS_PENDING_BET] Processing: userId=${userId} amount=${betAmount} currency=${pendingBet.currency} platformTxId=${platformTxId} playerGameId=${playerGameId}`,
           );
 
-          const playerGameId = uuidv4();
           await this.betService.createPlacement({
             externalPlatformTxId: platformTxId,
             userId: pendingBet.userId,
@@ -452,7 +454,7 @@ export class SugarDaddyGameBetService {
           const mappingKey = `sugar-daddy:bet:${playerGameId}`;
           await this.redisService.set(mappingKey, platformTxId, 60 * 60 * 24);
 
-          await this.sugarDaddyGameService.addPendingBetToRound(pendingBet, gameUUID);
+          await this.sugarDaddyGameService.addPendingBetToRound(pendingBet, gameUUID, playerGameId);
 
           await this.sugarDaddyGameService.removePendingBet(userId);
 

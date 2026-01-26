@@ -622,10 +622,10 @@ export class SugarDaddyGameService {
     this.logger.debug(`[REMOVE_PENDING_BET] Removed pending bet for userId=${userId}`);
   }
 
-  async addPendingBetToRound(pendingBet: PendingBet, gameUUID: string): Promise<BetData> {
+  async addPendingBetToRound(pendingBet: PendingBet, gameUUID: string, playerGameId: string): Promise<BetData> {
     await this.loadActiveRoundFromRedis();
 
-    const playerGameId = uuidv4();
+    // Use the provided playerGameId (the original one returned to user)
     const betData: BetData = {
       userId: pendingBet.userId,
       operatorId: pendingBet.operatorId,
