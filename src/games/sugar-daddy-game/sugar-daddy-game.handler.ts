@@ -14,6 +14,7 @@ const WS_EVENTS = {
   GAME_SERVICE_ON_CHANGE_STATE: 'gameService-onChangeStateGame',
   GAME_SERVICE_ON_CONNECT_GAME: 'gameService-onConnectGame',
   GAME_SERVICE_ON_GAME_CONFIG: 'gameService-onGameConfig',
+  GAME_SERVICE_ON_GAME_SEEDS: 'gameService-onGameSeeds',
   GAME_SERVICE_LATENCY_TEST: 'gameService-latencyTest',
   CHAT_SERVICE_JOIN_ROOM: 'chatService-joinRoom',
   CHAT_SERVICE_MESSAGES: 'chatService-messages',
@@ -261,6 +262,9 @@ export class SugarDaddyGameHandler implements IGameHandler {
         const configPayload = {};
         this.logger.debug(`[WS_GET_CONFIG] Emitting ${WS_EVENTS.GAME_SERVICE_ON_GAME_CONFIG} with payload: ${JSON.stringify(configPayload)}`);
         client.emit(WS_EVENTS.GAME_SERVICE_ON_GAME_CONFIG, configPayload);
+      } else if (data?.action === 'getGameSeeds') {
+        this.logger.log(`[WS_GET_SEEDS] Client ${client.id} requested game seeds`);
+        await this.handleGetGameSeeds(client, userId);
       } else if (data?.action === 'bet') {
         // Extract bet data - support both payload object and top-level fields
         const payload = data.payload || data;
@@ -494,6 +498,48 @@ export class SugarDaddyGameHandler implements IGameHandler {
       if (typeof ack === 'function') {
         ack(errorResponse);
       }
+    }
+  }
+
+  private async handleGetGameSeeds(
+    client: Socket,
+    userId: string,
+  ): Promise<void> {
+    if (!userId) {
+      this.logger.warn(`[WS_GET_SEEDS] Missing userId for client ${client.id}`);
+      client.emit(WS_EVENTS.GAME_SERVICE_ON_GAME_SEEDS, {
+        userSeed: '',
+        hashedServerSeed: '',
+      });
+      return;
+    }
+
+    try {
+      const seeds = await this.sugarDaddyGameService.getGameSeeds(userId);
+      
+      if (!seeds) {
+        this.logger.warn(`[WS_GET_SEEDS] No active round found for userId=${userId}`);
+        client.emit(WS_EVENTS.GAME_SERVICE_ON_GAME_SEEDS, {
+          userSeed: '',
+          hashedServerSeed: '',
+        });
+        return;
+      }
+
+      this.logger.log(
+        `[WS_GET_SEEDS] Sending seeds for userId=${userId} userSeed=${seeds.userSeed.substring(0, 8)}...`,
+      );
+
+      client.emit(WS_EVENTS.GAME_SERVICE_ON_GAME_SEEDS, {
+        userSeed: seeds.userSeed,
+        hashedServerSeed: seeds.hashedServerSeed,
+      });
+    } catch (error: any) {
+      this.logger.error(`[WS_GET_SEEDS] Error: ${error.message}`);
+      client.emit(WS_EVENTS.GAME_SERVICE_ON_GAME_SEEDS, {
+        userSeed: '',
+        hashedServerSeed: '',
+      });
     }
   }
 

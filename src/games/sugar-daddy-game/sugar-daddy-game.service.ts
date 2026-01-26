@@ -362,6 +362,26 @@ export class SugarDaddyGameService {
 
     this.activeRound.bets.set(bet.playerGameId, bet);
 
+    // Add client seed if not already present
+    const existingClientSeed = this.activeRound.clientsSeeds.find(
+      (clientSeed) => clientSeed.userId === bet.userId,
+    );
+    
+    if (!existingClientSeed) {
+      // Generate a new client seed for the user (16 hex characters = 8 bytes)
+      const crypto = require('crypto');
+      const userSeed = crypto.randomBytes(8).toString('hex');
+      
+      this.activeRound.clientsSeeds.push({
+        userId: bet.userId,
+        seed: userSeed,
+        nickname: bet.nickname || `user${bet.userId}`,
+        gameAvatar: bet.gameAvatar || null,
+      });
+      
+      this.logger.debug(`[ADD_BET] Generated client seed for userId=${bet.userId}`);
+    }
+
     // Save to Redis immediately
     await this.saveActiveRoundToRedis();
 
@@ -432,6 +452,60 @@ export class SugarDaddyGameService {
       }
     }
     return userBets;
+  }
+
+  /**
+   * Get game seeds for a user (userSeed and hashedServerSeed)
+   * Returns the user's client seed from the active round and the hashed server seed
+   */
+  async getGameSeeds(userId: string): Promise<{ userSeed: string; hashedServerSeed: string } | null> {
+    await this.loadActiveRoundFromRedis();
+
+    if (!this.activeRound) {
+      this.logger.debug(`[GET_GAME_SEEDS] No active round found for userId=${userId}`);
+      return null;
+    }
+
+    // Find user's seed in clientsSeeds array
+    const userClientSeed = this.activeRound.clientsSeeds.find(
+      (clientSeed) => clientSeed.userId === userId,
+    );
+
+    // If user doesn't have a seed yet, generate one (16-character hex string)
+    let userSeed: string;
+    if (userClientSeed) {
+      userSeed = userClientSeed.seed;
+    } else {
+      // Generate a new client seed for the user (16 hex characters = 8 bytes)
+      const crypto = require('crypto');
+      userSeed = crypto.randomBytes(8).toString('hex');
+      
+      // Add to clientsSeeds array if we have user info
+      // Note: We need nickname and gameAvatar, but we'll use defaults if not available
+      this.activeRound.clientsSeeds.push({
+        userId,
+        seed: userSeed,
+        nickname: `user${userId}`,
+        gameAvatar: null,
+      });
+      
+      // Save to Redis
+      await this.saveActiveRoundToRedis();
+      
+      this.logger.debug(`[GET_GAME_SEEDS] Generated new client seed for userId=${userId}`);
+    }
+
+    // Calculate hashed server seed (SHA256 of server seed)
+    const crypto = require('crypto');
+    const hashedServerSeed = crypto
+      .createHash('sha256')
+      .update(this.activeRound.serverSeed)
+      .digest('hex');
+
+    return {
+      userSeed,
+      hashedServerSeed,
+    };
   }
 
   async getActiveRound(): Promise<ActiveRound | null> {
