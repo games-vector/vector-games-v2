@@ -435,13 +435,35 @@ export class SugarDaddyGameHandler implements IGameHandler {
         `[WS_CASHOUT_SUCCESS] user=${userId} playerGameId=${result.bet.playerGameId} winAmount=${winAmount} coeffWin=${coeffWin}`,
       );
       
-      // Emit balance change if cashout was successful and balance is available
-      if (result.balance && result.balanceCurrency) {
+      // Always emit balance change after successful cashout
+      // Use balance from result if available, otherwise fetch it
+      let balance: string | undefined = result.balance;
+      let balanceCurrency: string | undefined = result.balanceCurrency;
+      
+      if (!balance || !balanceCurrency) {
+        // Fallback: fetch balance from wallet service
+        try {
+          const walletBalance = await this.walletService.getBalance(agentId, userId);
+          balance = walletBalance.balance ? String(walletBalance.balance) : undefined;
+          balanceCurrency = result.bet.currency; // Use currency from bet
+          this.logger.debug(`[BALANCE_CHANGE] Fetched balance via getBalance: balance=${balance} currency=${balanceCurrency}`);
+        } catch (error: any) {
+          this.logger.warn(
+            `[BALANCE_CHANGE] Failed to fetch balance after cashout: user=${userId} error=${error.message}`,
+          );
+        }
+      }
+      
+      if (balance && balanceCurrency) {
         client.emit(WS_EVENTS.BALANCE_CHANGE, {
-          currency: result.balanceCurrency,
-          balance: result.balance,
+          currency: balanceCurrency,
+          balance: balance,
         });
-        this.logger.debug(`[BALANCE_CHANGE] Emitted after cashout: balance=${result.balance} currency=${result.balanceCurrency}`);
+        this.logger.debug(`[BALANCE_CHANGE] Emitted after cashout: balance=${balance} currency=${balanceCurrency}`);
+      } else {
+        this.logger.warn(
+          `[BALANCE_CHANGE] Could not emit balance change after cashout: user=${userId} balance=${balance} currency=${balanceCurrency}`,
+        );
       }
       
       const gameState = await this.sugarDaddyGameService.getCurrentGameState();
