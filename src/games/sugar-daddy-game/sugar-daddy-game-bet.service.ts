@@ -716,10 +716,23 @@ export class SugarDaddyGameBetService {
         // Try to get fairness data from coefficient history first
         const coeffHistory = coeffHistoryMap.get(gameId);
         
+        // Get server seed from coefficient history or fairness data
+        const serverSeed = coeffHistory?.serverSeed || fairnessData.serverSeed || '';
+        
+        // Calculate hashedServerSeed from serverSeed if we have it
+        let hashedServerSeed = fairnessData.hashedServerSeed || '';
+        if (!hashedServerSeed && serverSeed) {
+          const crypto = require('crypto');
+          hashedServerSeed = crypto
+            .createHash('sha256')
+            .update(serverSeed)
+            .digest('hex');
+        }
+        
         // Build fairness object
         const fairness: any = {
-          serverSeed: coeffHistory?.serverSeed || fairnessData.serverSeed || '',
-          hashedServerSeed: fairnessData.hashedServerSeed || '',
+          serverSeed: serverSeed,
+          hashedServerSeed: hashedServerSeed,
           clientsSeeds: coeffHistory?.clientsSeeds || [],
           combinedHash: coeffHistory?.combinedHash || fairnessData.combinedHash || '',
           decimal: coeffHistory?.decimal || fairnessData.decimal || '',
