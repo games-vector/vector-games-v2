@@ -695,6 +695,42 @@ export class SugarDaddyGameBetService {
     }
   }
 
+  async getUserBetsHistory(userId: string, gameCode: string, limit: number = 100): Promise<BetData[]> {
+    try {
+      const bets = await this.betService.listUserBets(userId, gameCode, limit);
+      
+      const betHistory: BetData[] = bets.map((bet) => {
+        const gameMetadata = bet.gameMetadata || {};
+        const playerGameId = gameMetadata.playerGameId || '';
+        
+        return {
+          userId: bet.userId,
+          operatorId: bet.operatorId || '',
+          multiplayerGameId: '', // Not stored in DB, would need to reconstruct from roundId
+          nickname: '', // Not stored in DB
+          currency: bet.currency,
+          betAmount: bet.betAmount,
+          betNumber: gameMetadata.betNumber || 0,
+          gameAvatar: null, // Not stored in DB
+          playerGameId: playerGameId,
+          coeffAuto: gameMetadata.coeffAuto,
+          userAvatar: null, // Not stored in DB
+          coeffWin: bet.withdrawCoeff || undefined,
+          winAmount: bet.winAmount || undefined,
+        };
+      });
+
+      this.logger.log(
+        `[GET_BETS_HISTORY] user=${userId} gameCode=${gameCode} found ${betHistory.length} bets`,
+      );
+
+      return betHistory;
+    } catch (error: any) {
+      this.logger.error(`[GET_BETS_HISTORY] Error: ${error.message}`);
+      throw error;
+    }
+  }
+
   async cancelBet(
     userId: string,
     agentId: string,

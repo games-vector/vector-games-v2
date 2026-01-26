@@ -219,6 +219,12 @@ export class SugarDaddyGameHandler implements IGameHandler {
       this.sendChatMessages(client, chatRoom);
     });
 
+    // Bet history handler
+    client.on('gameService-get-my-bets-history', async (data: any, ack?: (response: any) => void) => {
+      this.logger.log(`[WS_GET_BETS_HISTORY] Client ${client.id} requested bet history`);
+      await this.handleGetBetsHistory(client, userId, gameCode, ack);
+    });
+
     // Game service handler
     client.on('gameService', async (data: { action?: string; payload?: any; betAmount?: string; currency?: string; coeffAuto?: string; betNumber?: number; playerGameId?: string }) => {
       if (data?.action === 'join') {
@@ -444,6 +450,54 @@ export class SugarDaddyGameHandler implements IGameHandler {
         error: result.error || 'Failed to cash out',
         code: result.code || 'BET_REJECTED',
       });
+    }
+  }
+
+  private async handleGetBetsHistory(
+    client: Socket,
+    userId: string,
+    gameCode: string,
+    ack?: (response: any) => void,
+  ): Promise<void> {
+    if (!userId) {
+      const errorResponse = {
+        success: false,
+        error: 'Missing user information',
+        code: 'MISSING_USER_INFO',
+        bets: [],
+      };
+      if (typeof ack === 'function') {
+        ack(errorResponse);
+      }
+      return;
+    }
+
+    try {
+      const bets = await this.sugarDaddyGameBetService.getUserBetsHistory(userId, gameCode);
+      
+      const response = {
+        success: true,
+        bets: bets,
+      };
+
+      this.logger.log(
+        `[WS_GET_BETS_HISTORY] user=${userId} found ${bets.length} bets`,
+      );
+
+      if (typeof ack === 'function') {
+        ack(response);
+      }
+    } catch (error: any) {
+      this.logger.error(`[WS_GET_BETS_HISTORY] Error: ${error.message}`);
+      const errorResponse = {
+        success: false,
+        error: error.message || 'Failed to get bet history',
+        code: 'BET_HISTORY_ERROR',
+        bets: [],
+      };
+      if (typeof ack === 'function') {
+        ack(errorResponse);
+      }
     }
   }
 
