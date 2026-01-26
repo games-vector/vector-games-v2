@@ -473,19 +473,15 @@ export class SugarDaddyGameHandler implements IGameHandler {
     }
 
     try {
-      const bets = await this.sugarDaddyGameBetService.getUserBetsHistory(userId, gameCode);
+      const betHistory = await this.sugarDaddyGameBetService.getUserBetsHistory(userId, gameCode);
       
-      const response = {
-        success: true,
-        bets: bets,
-      };
-
+      // Response format: [[bet1, bet2, ...]] - array containing array of bets
       this.logger.log(
-        `[WS_GET_BETS_HISTORY] user=${userId} found ${bets.length} bets`,
+        `[WS_GET_BETS_HISTORY] user=${userId} found ${betHistory[0]?.length || 0} bets`,
       );
 
       if (typeof ack === 'function') {
-        ack(response);
+        ack(betHistory);
       }
     } catch (error: any) {
       this.logger.error(`[WS_GET_BETS_HISTORY] Error: ${error.message}`);

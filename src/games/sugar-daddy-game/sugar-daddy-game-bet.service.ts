@@ -695,28 +695,64 @@ export class SugarDaddyGameBetService {
     }
   }
 
-  async getUserBetsHistory(userId: string, gameCode: string, limit: number = 100): Promise<BetData[]> {
+  async getUserBetsHistory(userId: string, gameCode: string, limit: number = 100): Promise<any[]> {
     try {
       const bets = await this.betService.listUserBets(userId, gameCode, limit);
       
-      const betHistory: BetData[] = bets.map((bet) => {
+      // Get coefficient history to fetch fairness data for each round
+      const coefficientsHistory = await this.sugarDaddyGameService.getCoefficientsHistory(1000);
+      const coeffHistoryMap = new Map<number, any>();
+      coefficientsHistory.forEach((coeff) => {
+        coeffHistoryMap.set(coeff.gameId, coeff);
+      });
+      
+      const betHistory = bets.map((bet) => {
         const gameMetadata = bet.gameMetadata || {};
-        const playerGameId = gameMetadata.playerGameId || '';
+        const fairnessData = bet.fairnessData || {};
+        
+        // Parse roundId to number (gameId)
+        const gameId = parseInt(bet.roundId) || 0;
+        
+        // Try to get fairness data from coefficient history first
+        const coeffHistory = coeffHistoryMap.get(gameId);
+        
+        // Build fairness object
+        const fairness: any = {
+          serverSeed: coeffHistory?.serverSeed || fairnessData.serverSeed || '',
+          hashedServerSeed: fairnessData.hashedServerSeed || '',
+          clientsSeeds: coeffHistory?.clientsSeeds || [],
+          combinedHash: coeffHistory?.combinedHash || fairnessData.combinedHash || '',
+          decimal: coeffHistory?.decimal || fairnessData.decimal || '',
+          maxCoefficient: 1000000,
+        };
+        
+        // Fallback: Try to parse clientsSeeds from gameInfo if not in coefficient history
+        if (fairness.clientsSeeds.length === 0 && bet.gameInfo) {
+          try {
+            const gameInfo = typeof bet.gameInfo === 'string' ? JSON.parse(bet.gameInfo) : bet.gameInfo;
+            if (gameInfo.clientsSeeds && Array.isArray(gameInfo.clientsSeeds)) {
+              fairness.clientsSeeds = gameInfo.clientsSeeds;
+            }
+          } catch (e) {
+            // Ignore parsing errors
+          }
+        }
         
         return {
+          id: bet.id,
+          createdAt: bet.createdAt.toISOString(),
+          gameId: gameId,
+          finishCoeff: bet.finalCoeff ? parseFloat(bet.finalCoeff) : (bet.withdrawCoeff ? parseFloat(bet.withdrawCoeff) : 0),
+          fairness: fairness,
+          betAmount: parseFloat(bet.betAmount),
+          win: bet.winAmount ? parseFloat(bet.winAmount) : 0,
+          withdrawCoeff: bet.withdrawCoeff ? parseFloat(bet.withdrawCoeff) : null,
+          operatorId: bet.operatorId,
           userId: bet.userId,
-          operatorId: bet.operatorId || '',
-          multiplayerGameId: '', // Not stored in DB, would need to reconstruct from roundId
-          nickname: '', // Not stored in DB
           currency: bet.currency,
-          betAmount: bet.betAmount,
-          betNumber: gameMetadata.betNumber || 0,
-          gameAvatar: null, // Not stored in DB
-          playerGameId: playerGameId,
-          coeffAuto: gameMetadata.coeffAuto,
-          userAvatar: null, // Not stored in DB
-          coeffWin: bet.withdrawCoeff || undefined,
-          winAmount: bet.winAmount || undefined,
+          gameMeta: {
+            betNumber: gameMetadata.betNumber || 0,
+          },
         };
       });
 
@@ -724,7 +760,8 @@ export class SugarDaddyGameBetService {
         `[GET_BETS_HISTORY] user=${userId} gameCode=${gameCode} found ${betHistory.length} bets`,
       );
 
-      return betHistory;
+      // Return as array containing array of bets: [[bet1, bet2, ...]]
+      return [betHistory];
     } catch (error: any) {
       this.logger.error(`[GET_BETS_HISTORY] Error: ${error.message}`);
       throw error;
