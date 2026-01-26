@@ -761,7 +761,7 @@ export class SugarDaddyGameBetService {
       );
 
       // Return as array containing array of bets: [[bet1, bet2, ...]]
-      return [betHistory];
+      return betHistory;
     } catch (error: any) {
       this.logger.error(`[GET_BETS_HISTORY] Error: ${error.message}`);
       throw error;
