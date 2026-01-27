@@ -64,8 +64,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
   getGameConfigResponse(): any {
     try {
-      // This will be called asynchronously, so we need to handle it properly
-      // For now, return defaults - we'll update handleConnection to use DB configs
       const defaultBetConfig = DEFAULTS.GAMES.SUGAR_DADDY.BET_CONFIG;
 
       const response = {
@@ -110,7 +108,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
       const dbBetConfig = configPayload.betConfig;
       const defaultBetConfig = DEFAULTS.GAMES.SUGAR_DADDY.BET_CONFIG;
 
-      // Use DB config with fallback to defaults
       const betConfig = {
         [defaultBetConfig.currency || DEFAULTS.GAMES.SUGAR_DADDY.DEFAULT_CURRENCY]: {
           betPresets: dbBetConfig.betPresets || defaultBetConfig.betPresets,
@@ -234,13 +231,11 @@ export class SugarDaddyGameHandler implements IGameHandler {
           this.logger.error(`[WS_JOIN] Error sending onConnectGame: ${error.message}`);
         });
 
-        // Always send game state, even if null (send default state)
         const gameState = await this.sugarDaddyGameService.getCurrentGameState();
         if (gameState) {
           this.logger.log(`[WS_JOIN] Sending current game state to client ${client.id}: status=${gameState.status} roundId=${gameState.roundId}`);
           client.emit(WS_EVENTS.GAME_SERVICE_ON_CHANGE_STATE, gameState);
         } else {
-          // Send default game state when no active game exists
           const defaultGameState: GameStateChangePayload = {
             status: GameStatus.WAIT_GAME,
             roundId: 0,
@@ -362,7 +357,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
       ...(success ? {} : { error, code }),
     });
 
-    // Emit balance change if bet was successful and balance is available
     if (result.success && result.balance && result.balanceCurrency) {
       client.emit(WS_EVENTS.BALANCE_CHANGE, {
         currency: result.balanceCurrency,
@@ -418,7 +412,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
     );
 
     if (result.success && result.bet) {
-      // Emit success response with the required format
       const winAmount = result.bet.winAmount || '0';
       const coeffWin = result.bet.coeffWin || '0';
       
@@ -435,17 +428,14 @@ export class SugarDaddyGameHandler implements IGameHandler {
         `[WS_CASHOUT_SUCCESS] user=${userId} playerGameId=${result.bet.playerGameId} winAmount=${winAmount} coeffWin=${coeffWin}`,
       );
       
-      // Always emit balance change after successful cashout
-      // Use balance from result if available, otherwise fetch it
       let balance: string | undefined = result.balance;
       let balanceCurrency: string | undefined = result.balanceCurrency;
       
       if (!balance || !balanceCurrency) {
-        // Fallback: fetch balance from wallet service
         try {
           const walletBalance = await this.walletService.getBalance(agentId, userId);
           balance = walletBalance.balance ? String(walletBalance.balance) : undefined;
-          balanceCurrency = result.bet.currency; // Use currency from bet
+          balanceCurrency = result.bet.currency;
           this.logger.debug(`[BALANCE_CHANGE] Fetched balance via getBalance: balance=${balance} currency=${balanceCurrency}`);
         } catch (error: any) {
           this.logger.warn(
@@ -614,7 +604,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
     client.emit('gameService-onCancelBet', result);
 
-    // Emit balance change if cancel was successful and balance is available
     if (result.success && result.balance && result.balanceCurrency) {
       client.emit(WS_EVENTS.BALANCE_CHANGE, {
         currency: result.balanceCurrency,
@@ -631,7 +620,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
     }
   }
 
-  // Broadcasting methods
   broadcastCoefficientUpdate(gameCode: string | null, payload: CoefficientChangePayload): void {
     if (!this.server || !this.server.sockets) {
       this.logger.warn(`[BROADCAST] Server not ready, skipping coefficient broadcast`);
@@ -673,12 +661,17 @@ export class SugarDaddyGameHandler implements IGameHandler {
       return;
     }
 
-    const myBets = await this.sugarDaddyGameService.getUserBets(userId);
+    const allUserBets = await this.sugarDaddyGameService.getUserBets(userId);
+    
+    const myBets = allUserBets.filter(bet => {
+      const isCashedOut = bet.coeffWin && bet.winAmount;
+      return !isCashedOut;
+    });
 
-    const pendingBet = await this.sugarDaddyGameService.getPendingBet(userId);
+    const pendingBets = await this.sugarDaddyGameService.getAllPendingBetsForUser(userId);
     const myNextGameBets: BetData[] = [];
 
-    if (pendingBet) {
+    for (const pendingBet of pendingBets) {
       myNextGameBets.push({
         userId: pendingBet.userId,
         operatorId: pendingBet.operatorId,
@@ -792,8 +785,11 @@ export class SugarDaddyGameHandler implements IGameHandler {
           this.broadcastCoefficientUpdate(gameCode, coeff);
         }
 
-        if (updated) {
-          const autoCashoutBets = await this.sugarDaddyGameService.getAutoCashoutBets();
+        const autoCashoutBets = await this.sugarDaddyGameService.getAutoCashoutBets();
+        if (autoCashoutBets.length > 0) {
+          this.logger.debug(
+            `[COEFF_BROADCAST] Found ${autoCashoutBets.length} bets for auto-cashout`,
+          );
           for (const { playerGameId, bet } of autoCashoutBets) {
             this.processAutoCashout(playerGameId, bet, gameCode).catch((error) => {
               this.logger.error(
@@ -801,7 +797,9 @@ export class SugarDaddyGameHandler implements IGameHandler {
               );
             });
           }
-        } else {
+        }
+
+        if (!updated) {
           this.logger.log(`[COEFF_BROADCAST] Round ended, stopping coefficient broadcast`);
           this.stopCoefficientBroadcast();
           const gameState = await this.sugarDaddyGameService.getCurrentGameState();
@@ -943,7 +941,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
   }
 
   private getCurrencies(): Record<string, number> {
-    // Return currency conversion rates (full list from original gateway)
     return {
       "ADA": 2.493846558309699,
       "AED": 3.6725,

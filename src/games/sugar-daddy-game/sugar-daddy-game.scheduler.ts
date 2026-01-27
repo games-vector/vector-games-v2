@@ -33,7 +33,6 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
       this.onRoundEnded();
     });
     
-    // Start leader election process
     setTimeout(() => {
       this.startLeaderElection();
     }, 2000);
@@ -55,7 +54,6 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
   private async startLeaderElection(): Promise<void> {
     this.logger.log(`[LEADER_ELECTION] Starting leader election for pod ${this.POD_ID}`);
     
-    // Try to acquire lock immediately
     const acquired = await this.sugarDaddyGameService.acquireLeaderLock(this.POD_ID);
     
     if (acquired) {
@@ -87,7 +85,6 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
           this.logger.warn(`[LEADER_ELECTION] Pod ${this.POD_ID} lost leadership - stopping game loop`);
           this.isLeader = false;
           this.stopGameLoop();
-          // Try to reacquire
           this.startLeaderElection();
         }
       }
@@ -285,8 +282,6 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
         this.sugarDaddyGameHandler.broadcastGameStateChange(this.GAME_CODE, gameState);
       }
 
-      // Start coefficient broadcast for IN_GAME state
-      // This will send coefficient updates every 200ms during IN_GAME
       this.sugarDaddyGameHandler.startCoefficientBroadcast(this.GAME_CODE);
 
       this.logger.log(

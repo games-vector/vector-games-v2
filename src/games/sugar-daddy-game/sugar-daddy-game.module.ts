@@ -66,13 +66,10 @@ export class SugarDaddyGameModule implements OnModuleInit, IBaseGameModule {
   }
 
   getAdditionalGameCodes(): string[] {
-    // Return additional game codes that use the same handler
-    // Example: ['sugar-daddy-pro', 'sugar-daddy-classic']
     return [];
   }
 
   async onModuleInit() {
-    // Use standardized initialization helper
     await initializeGameModule(
       this,
       {

@@ -305,10 +305,10 @@ export class SugarDaddyGameBetService {
       );
     }
 
-      const existingPendingBet = await this.sugarDaddyGameService.getPendingBet(userId);
+      const existingPendingBet = await this.sugarDaddyGameService.getPendingBet(userId, betNumber);
     if (existingPendingBet) {
       this.logger.log(
-        `[QUEUE_BET] Replacing existing pending bet for userId=${userId}`,
+        `[QUEUE_BET] Replacing existing pending bet for userId=${userId} betNumber=${betNumber}`,
       );
     }
 
@@ -328,7 +328,7 @@ export class SugarDaddyGameBetService {
       queuedAt: Date.now(),
       platformTxId,
       gameCode,
-      playerGameId: tempPlayerGameId, // Store the playerGameId that will be returned to user
+      playerGameId: tempPlayerGameId,
     };
 
     const pendingBetMappingKey = `sugar-daddy:pending_bet:${tempPlayerGameId}`;
@@ -376,27 +376,37 @@ export class SugarDaddyGameBetService {
     };
 
     try {
-      const userIds = await this.sugarDaddyGameService.getAllPendingBetUsers();
+      const betIdentifiers = await this.sugarDaddyGameService.getAllPendingBetIdentifiers();
       
       this.logger.log(
-        `[PROCESS_PENDING_BETS] Found ${userIds.length} pending bets to process for roundId=${roundId}`,
+        `[PROCESS_PENDING_BETS] Found ${betIdentifiers.length} pending bets to process for roundId=${roundId}`,
       );
 
-      for (const userId of userIds) {
+      for (const betIdentifier of betIdentifiers) {
+        const [userId, betNumberStr] = betIdentifier.split(':');
+        const betNumber = parseInt(betNumberStr, 10);
+        
+        if (isNaN(betNumber)) {
+          this.logger.warn(
+            `[PROCESS_PENDING_BET] Invalid betIdentifier format: ${betIdentifier}, skipping`,
+          );
+          continue;
+        }
+
         try {
-          const pendingBet = await this.sugarDaddyGameService.getPendingBet(userId);
+          const pendingBet = await this.sugarDaddyGameService.getPendingBet(userId, betNumber);
           
           if (!pendingBet) {
-            await this.sugarDaddyGameService.removePendingBet(userId);
+            await this.sugarDaddyGameService.removePendingBet(userId, betNumber);
             continue;
           }
 
           const betAmount = parseFloat(pendingBet.betAmount);
           if (isNaN(betAmount) || betAmount <= 0) {
             this.logger.warn(
-              `[PROCESS_PENDING_BET] Invalid bet amount for userId=${userId}, removing pending bet`,
+              `[PROCESS_PENDING_BET] Invalid bet amount for userId=${userId} betNumber=${betNumber}, removing pending bet`,
             );
-            await this.sugarDaddyGameService.removePendingBet(userId);
+            await this.sugarDaddyGameService.removePendingBet(userId, betNumber);
             result.failed++;
             result.errors.push({ userId, error: 'Invalid bet amount' });
             continue;
@@ -408,7 +418,7 @@ export class SugarDaddyGameBetService {
             this.logger.warn(
               `[PROCESS_PENDING_BET] Duplicate betNumber ${pendingBet.betNumber} for userId=${userId}, removing pending bet`,
             );
-            await this.sugarDaddyGameService.removePendingBet(userId);
+            await this.sugarDaddyGameService.removePendingBet(userId, betNumber);
             result.failed++;
             result.errors.push({ userId, error: `Duplicate betNumber ${pendingBet.betNumber}` });
             continue;
@@ -416,20 +426,19 @@ export class SugarDaddyGameBetService {
 
           if (!pendingBet.platformTxId) {
             this.logger.error(
-              `[PROCESS_PENDING_BET] Missing platformTxId for userId=${userId}, removing pending bet`,
+              `[PROCESS_PENDING_BET] Missing platformTxId for userId=${userId} betNumber=${betNumber}, removing pending bet`,
             );
-            await this.sugarDaddyGameService.removePendingBet(userId);
+            await this.sugarDaddyGameService.removePendingBet(userId, betNumber);
             result.failed++;
             result.errors.push({ userId, error: 'Missing platformTxId' });
             continue;
           }
 
           const platformTxId = pendingBet.platformTxId;
-          // Use the original playerGameId that was returned to the user
           const playerGameId = pendingBet.playerGameId || uuidv4();
 
           this.logger.log(
-            `[PROCESS_PENDING_BET] Processing: userId=${userId} amount=${betAmount} currency=${pendingBet.currency} platformTxId=${platformTxId} playerGameId=${playerGameId}`,
+            `[PROCESS_PENDING_BET] Processing: userId=${userId} betNumber=${betNumber} amount=${betAmount} currency=${pendingBet.currency} platformTxId=${platformTxId} playerGameId=${playerGameId}`,
           );
 
           await this.betService.createPlacement({
@@ -456,17 +465,17 @@ export class SugarDaddyGameBetService {
 
           await this.sugarDaddyGameService.addPendingBetToRound(pendingBet, gameUUID, playerGameId);
 
-          await this.sugarDaddyGameService.removePendingBet(userId);
+          await this.sugarDaddyGameService.removePendingBet(userId, betNumber);
 
           result.processed++;
           this.logger.log(
-            `[PROCESS_PENDING_BET] ✅ Successfully processed: userId=${userId} playerGameId=${playerGameId} platformTxId=${platformTxId}`,
+            `[PROCESS_PENDING_BET] ✅ Successfully processed: userId=${userId} betNumber=${betNumber} playerGameId=${playerGameId} platformTxId=${platformTxId}`,
           );
         } catch (error: any) {
           this.logger.error(
-            `[PROCESS_PENDING_BET] Error processing bet for userId=${userId}: ${error.message}`,
+            `[PROCESS_PENDING_BET] Error processing bet for userId=${userId} betNumber=${betNumber}: ${error.message}`,
           );
-          await this.sugarDaddyGameService.removePendingBet(userId);
+          await this.sugarDaddyGameService.removePendingBet(userId, betNumber);
           result.failed++;
           result.errors.push({ userId, error: error.message || 'Failed to process bet' });
         }
@@ -501,19 +510,17 @@ export class SugarDaddyGameBetService {
 
       let bet = await this.sugarDaddyGameService.getBet(playerGameId);
       
-      // If bet not found in active round, check if it's a pending bet
       if (!bet) {
         this.logger.debug(
           `[CASHOUT] Bet not found in active round, checking if it's pending: playerGameId=${playerGameId}`,
         );
         
-        // Check if this is a pending bet (tempPlayerGameId from queueBetForNextRound)
         const pendingBetMappingKey = `sugar-daddy:pending_bet:${playerGameId}`;
         const pendingBetUserId = await this.redisService.get<string>(pendingBetMappingKey);
         
         if (pendingBetUserId && pendingBetUserId === userId) {
-          // This is a pending bet that hasn't been processed yet
-          const pendingBet = await this.sugarDaddyGameService.getPendingBet(userId);
+          const allPendingBets = await this.sugarDaddyGameService.getAllPendingBetsForUser(userId);
+          const pendingBet = allPendingBets.find(bet => bet.playerGameId === playerGameId) || null;
           
           if (pendingBet) {
             this.logger.warn(
@@ -526,7 +533,6 @@ export class SugarDaddyGameBetService {
           }
         }
         
-        // Check if there's a Redis mapping from playerGameId to platformTxId (for processed bets)
         const mappingKey = `sugar-daddy:bet:${playerGameId}`;
         const platformTxId = await this.redisService.get<string>(mappingKey);
         
@@ -535,12 +541,9 @@ export class SugarDaddyGameBetService {
             `[CASHOUT] Found platformTxId mapping: playerGameId=${playerGameId} platformTxId=${platformTxId}`,
           );
           
-          // Get bet from database
           const betRecord = await this.betService.getByExternalTxId(platformTxId, gameCode);
           
           if (betRecord && betRecord.userId === userId) {
-            // Check if bet is in the current active round by searching all bets
-            // Match by userId, betAmount, currency, and roundId
             const allBets = Array.from(activeRound.bets.values());
             bet = allBets.find(b => {
               const betAmountMatch = Math.abs(parseFloat(b.betAmount) - parseFloat(betRecord.betAmount)) < 0.01;
@@ -562,8 +565,6 @@ export class SugarDaddyGameBetService {
             }
           }
         } else {
-          // Also check if this might be a pending bet that was just processed
-          // Search all bets in active round by userId to see if we can find a match
           const allBets = Array.from(activeRound.bets.values());
           const userBets = allBets.filter(b => b.userId === userId);
           
@@ -699,7 +700,6 @@ export class SugarDaddyGameBetService {
     try {
       const bets = await this.betService.listUserBets(userId, gameCode, limit);
       
-      // Get coefficient history to fetch fairness data for each round
       const coefficientsHistory = await this.sugarDaddyGameService.getCoefficientsHistory(1000);
       const coeffHistoryMap = new Map<number, any>();
       coefficientsHistory.forEach((coeff) => {
@@ -710,16 +710,12 @@ export class SugarDaddyGameBetService {
         const gameMetadata = bet.gameMetadata || {};
         const fairnessData = bet.fairnessData || {};
         
-        // Parse roundId to number (gameId)
         const gameId = parseInt(bet.roundId) || 0;
         
-        // Try to get fairness data from coefficient history first
         const coeffHistory = coeffHistoryMap.get(gameId);
         
-        // Get server seed from coefficient history or fairness data
         const serverSeed = coeffHistory?.serverSeed || fairnessData.serverSeed || '';
         
-        // Calculate hashedServerSeed from serverSeed if we have it
         let hashedServerSeed = fairnessData.hashedServerSeed || '';
         if (!hashedServerSeed && serverSeed) {
           const crypto = require('crypto');
@@ -729,7 +725,6 @@ export class SugarDaddyGameBetService {
             .digest('hex');
         }
         
-        // Build fairness object
         const fairness: any = {
           serverSeed: serverSeed,
           hashedServerSeed: hashedServerSeed,
@@ -739,7 +734,6 @@ export class SugarDaddyGameBetService {
           maxCoefficient: 1000000,
         };
         
-        // Fallback: Try to parse clientsSeeds from gameInfo if not in coefficient history
         if (fairness.clientsSeeds.length === 0 && bet.gameInfo) {
           try {
             const gameInfo = typeof bet.gameInfo === 'string' ? JSON.parse(bet.gameInfo) : bet.gameInfo;
@@ -747,7 +741,6 @@ export class SugarDaddyGameBetService {
               fairness.clientsSeeds = gameInfo.clientsSeeds;
             }
           } catch (e) {
-            // Ignore parsing errors
           }
         }
         
@@ -773,7 +766,6 @@ export class SugarDaddyGameBetService {
         `[GET_BETS_HISTORY] user=${userId} gameCode=${gameCode} found ${betHistory.length} bets`,
       );
 
-      // Return as array containing array of bets: [[bet1, bet2, ...]]
       return betHistory;
     } catch (error: any) {
       this.logger.error(`[GET_BETS_HISTORY] Error: ${error.message}`);
@@ -800,24 +792,20 @@ export class SugarDaddyGameBetService {
     try {
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
       
-      // Check if bet exists in current round
       let bet: BetData | null = null;
       if (activeRound) {
         bet = await this.sugarDaddyGameService.getBet(playerGameId);
       }
 
-      // Check if bet exists in pending queue (using temp playerGameId mapping)
       let pendingBet: PendingBet | null = null;
       if (!bet) {
-        // Check if this playerGameId maps to a pending bet
         const pendingBetMappingKey = `sugar-daddy:pending_bet:${playerGameId}`;
         const pendingBetUserId = await this.redisService.get<string>(pendingBetMappingKey);
         
         if (pendingBetUserId && pendingBetUserId === userId) {
-          // This is a pending bet - get it
-          pendingBet = await this.sugarDaddyGameService.getPendingBet(userId);
+          const allPendingBets = await this.sugarDaddyGameService.getAllPendingBetsForUser(userId);
+          pendingBet = allPendingBets.find(bet => bet.playerGameId === playerGameId) || null;
           
-          // Remove the mapping
           await this.redisService.del(pendingBetMappingKey);
         }
       }
@@ -829,9 +817,7 @@ export class SugarDaddyGameBetService {
         );
       }
 
-      // If bet is in current round
       if (bet) {
-        // Verify bet belongs to user
         if (bet.userId !== userId) {
           return createErrorResponse(
             'Bet does not belong to user',
@@ -839,7 +825,6 @@ export class SugarDaddyGameBetService {
           );
         }
 
-        // Check if bet can be cancelled
         if (bet.coeffWin && bet.winAmount) {
           return createErrorResponse(
             'Cannot cancel bet: already cashed out',
@@ -854,7 +839,6 @@ export class SugarDaddyGameBetService {
           );
         }
 
-        // Get platformTxId from Redis
         const mappingKey = `sugar-daddy:bet:${playerGameId}`;
         const externalPlatformTxId = await this.redisService.get<string>(mappingKey);
 
@@ -868,7 +852,6 @@ export class SugarDaddyGameBetService {
           );
         }
 
-        // Get bet record from database
         const betRecord = await this.betService.getByExternalTxId(externalPlatformTxId, gameCode);
         if (!betRecord) {
           this.logger.error(
@@ -910,19 +893,16 @@ export class SugarDaddyGameBetService {
           );
         }
 
-        // Update bet status to REFUNDED
         await this.betService.updateStatus({
           externalPlatformTxId,
           status: BetStatus.REFUNDED,
           updatedBy: userId,
         });
 
-        // Remove bet from current round
         if (activeRound) {
           activeRound.bets.delete(playerGameId);
         }
 
-        // Remove Redis mapping
         await this.redisService.del(mappingKey);
 
         this.logger.log(
@@ -938,9 +918,7 @@ export class SugarDaddyGameBetService {
         });
       }
 
-      // If bet is in pending queue
       if (pendingBet) {
-        // Verify it's for this user
         if (pendingBet.userId !== userId) {
           return createErrorResponse(
             'Bet does not belong to user',
@@ -948,7 +926,6 @@ export class SugarDaddyGameBetService {
           );
         }
 
-        // Refund balance via Wallet API
         const betAmount = parseFloat(pendingBet.betAmount);
         const refundResult = await this.walletService.refundBet({
           agentId,
@@ -978,8 +955,11 @@ export class SugarDaddyGameBetService {
           );
         }
 
-        // Remove from pending queue
-        await this.sugarDaddyGameService.removePendingBet(userId);
+        if (pendingBet.betNumber !== undefined) {
+          await this.sugarDaddyGameService.removePendingBet(userId, pendingBet.betNumber);
+        } else {
+          await this.sugarDaddyGameService.removePendingBet(userId);
+        }
 
         this.logger.log(
           `[CANCEL_BET] ✅ Successfully cancelled pending bet: user=${userId} amount=${betAmount}`,
