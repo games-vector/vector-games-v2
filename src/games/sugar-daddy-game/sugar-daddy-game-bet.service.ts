@@ -186,6 +186,28 @@ export class SugarDaddyGameBetService {
     const roundId = String(activeRound.roundId);
     const platformTxId = uuidv4();
 
+    // Check idempotency key before wallet API call
+    const idempotencyKey = this.redisService.generateIdempotencyKey(
+      gameCode,
+      userId,
+      agentId,
+      roundId,
+      payload.betAmount,
+      betNumber,
+    );
+    const idempotencyCheck = await this.redisService.checkIdempotencyKey<{
+      platformTxId: string;
+      response: PlaceBetResponse;
+      timestamp: number;
+    }>(idempotencyKey);
+
+    if (idempotencyCheck.exists && idempotencyCheck.data) {
+      this.logger.log(
+        `[IDEMPOTENCY] Duplicate bet request detected: user=${userId} agent=${agentId} roundId=${roundId} amount=${betAmount} betNumber=${betNumber}. Returning stored response.`,
+      );
+      return idempotencyCheck.data.response;
+    }
+
     this.logger.log(
       `[BET_PLACE] user=${userId} agent=${agentId} amount=${betAmount} currency=${payload.currency} roundId=${roundId} txId=${platformTxId} betNumber=${betNumber}`,
     );
@@ -210,25 +232,78 @@ export class SugarDaddyGameBetService {
       );
     }
 
+    // Store wallet result for potential refund
+    const walletAmount = betAmount;
+
     const playerGameId = uuidv4();
-    await this.betService.createPlacement({
-      externalPlatformTxId: platformTxId,
-      userId,
-      roundId,
-      gameMetadata: {
-        betNumber,
-        coeffAuto: payload.coeffAuto,
-        playerGameId,
-      },
-      betAmount: payload.betAmount,
-      currency: payload.currency,
-      gameCode: gameCode,
-      isPremium: false,
-      betPlacedAt: walletResult.balanceTs ? new Date(walletResult.balanceTs) : undefined,
-      balanceAfterBet: walletResult.balance ? String(walletResult.balance) : undefined,
-      createdBy: userId,
-      operatorId,
-    });
+    
+    try {
+      await this.betService.createPlacement({
+        externalPlatformTxId: platformTxId,
+        userId,
+        roundId,
+        gameMetadata: {
+          betNumber,
+          coeffAuto: payload.coeffAuto,
+          playerGameId,
+        },
+        betAmount: payload.betAmount,
+        currency: payload.currency,
+        gameCode: gameCode,
+        isPremium: false,
+        betPlacedAt: walletResult.balanceTs ? new Date(walletResult.balanceTs) : undefined,
+        balanceAfterBet: walletResult.balance ? String(walletResult.balance) : undefined,
+        createdBy: userId,
+        operatorId,
+      });
+    } catch (dbError) {
+      // DB write failed - refund user immediately
+      this.logger.error(
+        `[COMPENSATING_TX] DB write failed after wallet deduction: user=${userId} txId=${platformTxId} error=${(dbError as Error).message}. Initiating refund.`,
+        (dbError as Error).stack,
+      );
+      
+      try {
+        const refundResult = await this.walletService.refundBet({
+          agentId,
+          userId,
+          refundTransactions: [{
+            platformTxId: platformTxId,
+            refundPlatformTxId: platformTxId,
+            betAmount: walletAmount,
+            winAmount: 0,
+            turnover: 0,
+            betTime: walletResult.balanceTs ? new Date(walletResult.balanceTs).toISOString() : new Date().toISOString(),
+            updateTime: new Date().toISOString(),
+            roundId: roundId,
+            gameCode: gameCode,
+          }],
+        });
+        
+        if (refundResult.status !== '0000') {
+          // Critical: Refund failed - log for manual intervention
+          this.logger.error(
+            `[COMPENSATING_TX] CRITICAL: Refund failed after DB write failure: user=${userId} txId=${platformTxId} refundStatus=${refundResult.status}. Manual intervention required!`,
+          );
+        } else {
+          this.logger.log(
+            `[COMPENSATING_TX] Successfully refunded user after DB write failure: user=${userId} txId=${platformTxId} amount=${walletAmount}`,
+          );
+        }
+      } catch (refundError) {
+        // Critical: Refund attempt itself failed
+        this.logger.error(
+          `[COMPENSATING_TX] CRITICAL: Refund attempt failed: user=${userId} txId=${platformTxId} error=${(refundError as Error).message}. Manual intervention required!`,
+          (refundError as Error).stack,
+        );
+      }
+      
+      // Return error to user
+      return createErrorResponse(
+        'Bet placement failed. Your balance has been refunded. Please try again.',
+        SUGAR_DADDY_ERROR_CODES.BET_REJECTED,
+      );
+    }
 
     const mappingKey = `sugar-daddy:bet:${playerGameId}`;
     await this.redisService.set(mappingKey, platformTxId, 60 * 60 * 24);
@@ -253,7 +328,7 @@ export class SugarDaddyGameBetService {
       `[BET_PLACED] user=${userId} playerGameId=${playerGameId} amount=${betAmount} currency=${payload.currency} betNumber=${betNumber}`,
     );
 
-    return createSuccessResponse({
+    const successResponse = createSuccessResponse({
       betAmount: payload.betAmount,
       currency: payload.currency,
       playerGameId,
@@ -263,6 +338,15 @@ export class SugarDaddyGameBetService {
       balance: walletResult.balance ? String(walletResult.balance) : undefined,
       balanceCurrency: payload.currency,
     });
+
+    // Store idempotency key after successful bet placement
+    await this.redisService.setIdempotencyKey(idempotencyKey, {
+      platformTxId: platformTxId,
+      response: successResponse,
+      timestamp: Date.now(),
+    });
+
+    return successResponse;
   }
 
   private async queueBetForNextRound(
@@ -280,6 +364,28 @@ export class SugarDaddyGameBetService {
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
     const roundId = activeRound ? String(activeRound.roundId) : 'pending';
     const platformTxId = uuidv4();
+
+    // Check idempotency key before wallet API call
+    const idempotencyKey = this.redisService.generateIdempotencyKey(
+      gameCode,
+      userId,
+      agentId,
+      roundId,
+      payload.betAmount,
+      betNumber,
+    );
+    const idempotencyCheck = await this.redisService.checkIdempotencyKey<{
+      platformTxId: string;
+      response: PlaceBetResponse;
+      timestamp: number;
+    }>(idempotencyKey);
+
+    if (idempotencyCheck.exists && idempotencyCheck.data) {
+      this.logger.log(
+        `[IDEMPOTENCY] Duplicate queued bet request detected: user=${userId} agent=${agentId} roundId=${roundId} amount=${betAmount} betNumber=${betNumber}. Returning stored response.`,
+      );
+      return idempotencyCheck.data.response;
+    }
 
     this.logger.log(
       `[QUEUE_BET] Deducting balance for queued bet: user=${userId} amount=${betAmount} currency=${payload.currency}`,
@@ -304,6 +410,9 @@ export class SugarDaddyGameBetService {
         SUGAR_DADDY_ERROR_CODES.BET_REJECTED,
       );
     }
+
+    // Store wallet result for potential refund
+    const walletAmount = betAmount;
 
       const existingPendingBet = await this.sugarDaddyGameService.getPendingBet(userId, betNumber);
     if (existingPendingBet) {
@@ -331,16 +440,65 @@ export class SugarDaddyGameBetService {
       playerGameId: tempPlayerGameId,
     };
 
-    const pendingBetMappingKey = `sugar-daddy:pending_bet:${tempPlayerGameId}`;
-    await this.redisService.set(pendingBetMappingKey, userId, 300);
+    try {
+      const pendingBetMappingKey = `sugar-daddy:pending_bet:${tempPlayerGameId}`;
+      await this.redisService.set(pendingBetMappingKey, userId, 300);
 
-    await this.sugarDaddyGameService.queueBetForNextRound(pendingBet);
+      await this.sugarDaddyGameService.queueBetForNextRound(pendingBet);
+    } catch (storageError) {
+      // Pending bet storage failed - refund user immediately
+      this.logger.error(
+        `[COMPENSATING_TX] Pending bet storage failed after wallet deduction: user=${userId} txId=${platformTxId} error=${(storageError as Error).message}. Initiating refund.`,
+        (storageError as Error).stack,
+      );
+      
+      try {
+        const refundResult = await this.walletService.refundBet({
+          agentId,
+          userId,
+          refundTransactions: [{
+            platformTxId: platformTxId,
+            refundPlatformTxId: platformTxId,
+            betAmount: walletAmount,
+            winAmount: 0,
+            turnover: 0,
+            betTime: walletResult.balanceTs ? new Date(walletResult.balanceTs).toISOString() : new Date().toISOString(),
+            updateTime: new Date().toISOString(),
+            roundId: roundId,
+            gameCode: gameCode,
+          }],
+        });
+        
+        if (refundResult.status !== '0000') {
+          // Critical: Refund failed - log for manual intervention
+          this.logger.error(
+            `[COMPENSATING_TX] CRITICAL: Refund failed after pending bet storage failure: user=${userId} txId=${platformTxId} refundStatus=${refundResult.status}. Manual intervention required!`,
+          );
+        } else {
+          this.logger.log(
+            `[COMPENSATING_TX] Successfully refunded user after pending bet storage failure: user=${userId} txId=${platformTxId} amount=${walletAmount}`,
+          );
+        }
+      } catch (refundError) {
+        // Critical: Refund attempt itself failed
+        this.logger.error(
+          `[COMPENSATING_TX] CRITICAL: Refund attempt failed: user=${userId} txId=${platformTxId} error=${(refundError as Error).message}. Manual intervention required!`,
+          (refundError as Error).stack,
+        );
+      }
+      
+      // Return error to user
+      return createErrorResponse(
+        'Bet queuing failed. Your balance has been refunded. Please try again.',
+        SUGAR_DADDY_ERROR_CODES.BET_REJECTED,
+      );
+    }
 
     this.logger.log(
       `[BET_QUEUED] user=${userId} amount=${betAmount} currency=${payload.currency} platformTxId=${platformTxId} tempPlayerGameId=${tempPlayerGameId} - will be placed in next round`,
     );
 
-    return createSuccessResponse({
+    const successResponse = createSuccessResponse({
       betAmount: payload.betAmount,
       currency: payload.currency,
       playerGameId: tempPlayerGameId,
@@ -362,6 +520,15 @@ export class SugarDaddyGameBetService {
       balance: walletResult.balance ? String(walletResult.balance) : undefined,
       balanceCurrency: payload.currency,
     });
+
+    // Store idempotency key after successful bet queuing
+    await this.redisService.setIdempotencyKey(idempotencyKey, {
+      platformTxId: platformTxId,
+      response: successResponse,
+      timestamp: Date.now(),
+    });
+
+    return successResponse;
   }
 
   async processPendingBets(roundId: number, gameUUID: string): Promise<{

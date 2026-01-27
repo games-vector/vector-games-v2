@@ -154,6 +154,27 @@ export class ChickenRoadGameService {
     const roundId = `${userId}${Date.now()}`;
     const platformTxId = `${uuidv4()}`;
 
+    // Check idempotency key before wallet API call
+    const idempotencyKey = this.redisService.generateIdempotencyKey(
+      gameCode,
+      userId,
+      agentId,
+      roundId,
+      betAmountStr,
+    );
+    const idempotencyCheck = await this.redisService.checkIdempotencyKey<{
+      platformTxId: string;
+      response: BetStepResponse;
+      timestamp: number;
+    }>(idempotencyKey);
+
+    if (idempotencyCheck.exists && idempotencyCheck.data) {
+      this.logger.log(
+        `[IDEMPOTENCY] Duplicate bet request detected: user=${userId} agent=${agentId} roundId=${roundId} amount=${betAmountStr}. Returning stored response.`,
+      );
+      return idempotencyCheck.data.response;
+    }
+
     this.logger.log(
       `[BET_PLACED] user=${userId} agent=${agentId} amount=${betAmountStr} currency=${currencyUC} difficulty=${difficultyUC} roundId=${roundId} txId=${platformTxId}`,
     );
@@ -189,25 +210,78 @@ export class ChickenRoadGameService {
 
     const externalPlatformTxId = platformTxId;
 
+    // Store wallet result for potential refund
+    const walletAmount = betNumber;
+    const walletCurrency = currencyUC;
+
     this.logger.debug(
       `Creating bet record in DB: user=${userId} txId=${externalPlatformTxId} roundId=${roundId}`,
     );
-    await this.betService.createPlacement({
-      externalPlatformTxId,
-      userId,
-      roundId,
-      gameMetadata: {
-        difficulty: dto.difficulty as string,
-      },
-      betAmount: betAmountStr,
-      currency: currencyUC,
-      gameCode,
-      isPremium: false,
-      betPlacedAt: balanceTs ? new Date(balanceTs) : undefined,
-      balanceAfterBet: balance ? String(balance) : undefined,
-      createdBy: userId,
-      operatorId: agentId,
-    });
+    
+    try {
+      await this.betService.createPlacement({
+        externalPlatformTxId,
+        userId,
+        roundId,
+        gameMetadata: {
+          difficulty: dto.difficulty as string,
+        },
+        betAmount: betAmountStr,
+        currency: currencyUC,
+        gameCode,
+        isPremium: false,
+        betPlacedAt: balanceTs ? new Date(balanceTs) : undefined,
+        balanceAfterBet: balance ? String(balance) : undefined,
+        createdBy: userId,
+        operatorId: agentId,
+      });
+    } catch (dbError) {
+      // DB write failed - refund user immediately
+      this.logger.error(
+        `[COMPENSATING_TX] DB write failed after wallet deduction: user=${userId} txId=${platformTxId} error=${(dbError as Error).message}. Initiating refund.`,
+        (dbError as Error).stack,
+      );
+      
+      try {
+        const refundResult = await this.walletService.refundBet({
+          agentId,
+          userId,
+          refundTransactions: [{
+            platformTxId: platformTxId,
+            refundPlatformTxId: platformTxId,
+            betAmount: walletAmount,
+            winAmount: 0,
+            turnover: 0,
+            betTime: balanceTs ? new Date(balanceTs).toISOString() : new Date().toISOString(),
+            updateTime: new Date().toISOString(),
+            roundId: roundId,
+            gameCode: gameCode,
+          }],
+        });
+        
+        if (refundResult.status !== '0000') {
+          // Critical: Refund failed - log for manual intervention
+          this.logger.error(
+            `[COMPENSATING_TX] CRITICAL: Refund failed after DB write failure: user=${userId} txId=${platformTxId} refundStatus=${refundResult.status}. Manual intervention required!`,
+          );
+        } else {
+          this.logger.log(
+            `[COMPENSATING_TX] Successfully refunded user after DB write failure: user=${userId} txId=${platformTxId} amount=${walletAmount}`,
+          );
+        }
+      } catch (refundError) {
+        // Critical: Refund attempt itself failed
+        this.logger.error(
+          `[COMPENSATING_TX] CRITICAL: Refund attempt failed: user=${userId} txId=${platformTxId} error=${(refundError as Error).message}. Manual intervention required!`,
+          (refundError as Error).stack,
+        );
+      }
+      
+      // Return error to user
+      return { 
+        error: 'Bet placement failed. Your balance has been refunded. Please try again.',
+      };
+    }
 
     const cfgPayload = await this.getGameConfigPayload(gameCode);
     const coefficients = cfgPayload.coefficients || {};
@@ -268,6 +342,13 @@ export class ChickenRoadGameService {
       currency: currencyUC,
       lineNumber: GAME_CONSTANTS.INITIAL_STEP,
     };
+
+    // Store idempotency key after successful bet placement
+    await this.redisService.setIdempotencyKey(idempotencyKey, {
+      platformTxId: externalPlatformTxId,
+      response: resp,
+      timestamp: Date.now(),
+    });
 
     // Bet placement already logged above
 

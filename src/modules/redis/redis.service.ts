@@ -115,4 +115,62 @@ export class RedisService {
       this.logger.error(`Failed to release lock ${key}`, error);
     }
   }
+
+  /**
+   * Generate idempotency key for bet placement
+   * @param gameCode - Game code
+   * @param userId - User ID
+   * @param agentId - Agent ID
+   * @param roundId - Round ID
+   * @param betAmount - Bet amount (as string)
+   * @param betNumber - Optional bet number (for Sugar Daddy game)
+   * @returns Idempotency key string
+   */
+  generateIdempotencyKey(
+    gameCode: string,
+    userId: string,
+    agentId: string,
+    roundId: string,
+    betAmount: string,
+    betNumber?: number,
+  ): string {
+    const baseKey = `idempotency:bet:${gameCode}:${userId}:${agentId}:${roundId}:${betAmount}`;
+    return betNumber !== undefined ? `${baseKey}:${betNumber}` : baseKey;
+  }
+
+  /**
+   * Check if idempotency key exists and return stored data
+   * @param key - Idempotency key
+   * @returns Object with exists flag and stored data (if exists)
+   */
+  async checkIdempotencyKey<T>(key: string): Promise<{ exists: boolean; data: T | null }> {
+    try {
+      const data = await this.get<T>(key);
+      if (data) {
+        this.logger.debug(`Idempotency key found: ${key}`);
+        return { exists: true, data };
+      }
+      return { exists: false, data: null };
+    } catch (error) {
+      // Fail open - if Redis check fails, log warning but don't block bet
+      this.logger.warn(`Failed to check idempotency key ${key}: ${error.message}. Continuing without idempotency check.`);
+      return { exists: false, data: null };
+    }
+  }
+
+  /**
+   * Store idempotency key with data
+   * @param key - Idempotency key
+   * @param data - Data to store
+   * @param ttlSeconds - Time to live in seconds (default: 3600 = 1 hour)
+   */
+  async setIdempotencyKey<T>(key: string, data: T, ttlSeconds: number = 3600): Promise<void> {
+    try {
+      await this.set(key, data, ttlSeconds);
+      this.logger.debug(`Stored idempotency key: ${key} (TTL: ${ttlSeconds}s)`);
+    } catch (error) {
+      // Log error but don't throw - idempotency is best effort
+      this.logger.error(`Failed to store idempotency key ${key}: ${error.message}`);
+    }
+  }
 }

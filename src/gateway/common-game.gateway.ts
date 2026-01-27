@@ -22,6 +22,7 @@ import {
 } from '../games/interfaces/game-handler.interface';
 import { DEFAULTS } from '../config/defaults.config';
 import { CriticalHandlersService } from '../games/utils/critical-handlers.service';
+import { RedisService } from '../modules/redis/redis.service';
 
 const CONNECTION_ERRORS = {
   MISSING_GAMECODE: 'MISSING_GAMECODE',
@@ -70,6 +71,7 @@ export class CommonGameGateway
     private readonly agentsService: AgentsService,
     private readonly gameDispatcher: GameDispatcherService,
     private readonly criticalHandlersService: CriticalHandlersService,
+    private readonly redisService: RedisService,
   ) {}
 
   /**
@@ -355,8 +357,28 @@ export class CommonGameGateway
   afterInit(server: Server): void {
     this.logger.log('Common Game Gateway initialized');
     
+    // Set up Redis adapter for multi-pod support
+    this.setupRedisAdapter(server);
+    
     // Store server instance in dispatcher so it can notify handlers registered later
     this.gameDispatcher.setGatewayServer(server);
+  }
+
+  private setupRedisAdapter(server: Server): void {
+    try {
+      const { createAdapter } = require('@socket.io/redis-adapter');
+      const redisClient = this.redisService.getClient();
+      
+      // Create pub/sub clients (adapter requires separate clients)
+      const pubClient = redisClient.duplicate();
+      const subClient = redisClient.duplicate();
+      
+      server.adapter(createAdapter(pubClient, subClient));
+      this.logger.log('✅ Redis adapter configured for Socket.IO - multi-pod support enabled');
+    } catch (error) {
+      this.logger.error(`Failed to setup Redis adapter: ${(error as Error).message}. Continuing without adapter (single-pod mode).`);
+      // Continue without adapter - system will work in single-pod mode
+    }
   }
 
 }
