@@ -870,15 +870,8 @@ export class SugarDaddyGameHandler implements IGameHandler {
       }
 
       if (bet.coeffWin && bet.winAmount) {
-        return;
-      }
-
-      const autoCoeff = parseFloat(bet.coeffAuto || '0');
-      const cashedOutBet = await this.sugarDaddyGameService.cashOutBet(playerGameId, autoCoeff);
-
-      if (!cashedOutBet) {
-        this.logger.error(
-          `[AUTO_CASHOUT] Failed to cash out bet: playerGameId=${playerGameId}`,
+        this.logger.debug(
+          `[AUTO_CASHOUT] Bet already cashed out: playerGameId=${playerGameId}`,
         );
         return;
       }
@@ -890,6 +883,11 @@ export class SugarDaddyGameHandler implements IGameHandler {
         return;
       }
 
+      const autoCoeff = parseFloat(bet.coeffAuto || '0');
+      this.logger.log(
+        `[AUTO_CASHOUT] Processing auto-cashout: userId=${bet.userId} playerGameId=${playerGameId} autoCoeff=${autoCoeff}`,
+      );
+
       const settleResult = await this.sugarDaddyGameBetService.cashOut(
         bet.userId,
         bet.operatorId,
@@ -898,8 +896,15 @@ export class SugarDaddyGameHandler implements IGameHandler {
         playerGameId,
       );
 
+      this.logger.log(
+        `[AUTO_CASHOUT] Settlement result: success=${settleResult.success} hasBet=${!!settleResult.bet} userId=${bet.userId} playerGameId=${playerGameId} error=${settleResult.error || 'N/A'}`,
+      );
+
       if (settleResult.success && settleResult.bet) {
-        this.sendAutoCashoutEvent(bet.userId, settleResult.bet);
+        this.logger.log(
+          `[AUTO_CASHOUT] Calling sendAutoCashoutEvent: userId=${bet.userId} playerGameId=${playerGameId} winAmount=${settleResult.bet.winAmount}`,
+        );
+        this.sendAutoCashoutEvent(bet.userId, settleResult.bet, gameCode);
 
         const gameState = await this.sugarDaddyGameService.getCurrentGameState();
         if (gameState) {
@@ -911,7 +916,7 @@ export class SugarDaddyGameHandler implements IGameHandler {
         );
       } else {
         this.logger.error(
-          `[AUTO_CASHOUT] Settlement failed: userId=${bet.userId} playerGameId=${playerGameId} error=${settleResult.error}`,
+          `[AUTO_CASHOUT] Settlement failed: userId=${bet.userId} playerGameId=${playerGameId} success=${settleResult.success} hasBet=${!!settleResult.bet} error=${settleResult.error || 'N/A'} code=${settleResult.code || 'N/A'}`,
         );
       }
     } catch (error: any) {
@@ -921,23 +926,59 @@ export class SugarDaddyGameHandler implements IGameHandler {
     }
   }
 
-  private sendAutoCashoutEvent(userId: string, bet: BetData): void {
+  private sendAutoCashoutEvent(userId: string, bet: BetData, gameCode?: string | null): void {
+    this.logger.log(
+      `[AUTO_CASHOUT_EVENT] Starting: userId=${userId} playerGameId=${bet.playerGameId} winAmount=${bet.winAmount} coeffWin=${bet.coeffWin} gameCode=${gameCode || 'N/A'}`,
+    );
+
     if (!this.server) {
+      this.logger.error(`[AUTO_CASHOUT_EVENT] Server not set for userId=${userId}`);
       return;
     }
 
+    if (!this.server.sockets) {
+      this.logger.error(`[AUTO_CASHOUT_EVENT] Server.sockets not available for userId=${userId}`);
+      return;
+    }
+
+    const payload = {
+      success: true,
+      result: bet.winAmount,
+      coeffWin: bet.coeffWin,
+      currency: bet.currency,
+      userId: bet.userId,
+      playerGameId: bet.playerGameId,
+    };
+
+    let socketsMatched = 0;
+    let totalSockets = 0;
+
     this.server.sockets.sockets.forEach((socket) => {
-      if (socket.data?.userId === userId) {
-        socket.emit('gameService-onWithdrawGame', {
-          success: true,
-          result: bet.winAmount,
-          coeffWin: bet.coeffWin,
-          currency: bet.currency,
-          userId: bet.userId,
-          playerGameId: bet.playerGameId,
-        });
+      totalSockets++;
+      const socketUserId = socket.data?.userId;
+      
+      if (socketUserId === userId) {
+        socketsMatched++;
+        this.logger.log(
+          `[AUTO_CASHOUT_EVENT] Emitting to socket: socketId=${socket.id} userId=${socketUserId} playerGameId=${bet.playerGameId}`,
+        );
+        socket.emit('gameService-onWithdrawGame', payload);
       }
     });
+
+    this.logger.log(
+      `[AUTO_CASHOUT_EVENT] Result: userId=${userId} socketsMatched=${socketsMatched} totalSockets=${totalSockets}`,
+    );
+
+    if (socketsMatched === 0 && gameCode) {
+      this.logger.warn(
+        `[AUTO_CASHOUT_EVENT] ⚠️ No sockets found for userId=${userId}, trying room broadcast to game:${gameCode}`,
+      );
+      this.server.to(`game:${gameCode}`).emit('gameService-onWithdrawGame', {
+        ...payload,
+        targetUserId: userId,
+      });
+    }
   }
 
   private getCurrencies(): Record<string, number> {
