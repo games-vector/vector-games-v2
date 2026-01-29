@@ -575,9 +575,13 @@ export class SugarDaddyGameService {
     }
 
     try {
+      // Get top 3 winners based on win amount
+      const topClientsSeeds = this.getTopClientsSeeds(3);
+
       let combinedHash = this.activeRound.combinedHash;
       let decimal = this.activeRound.decimal;
 
+      // For hash calculation, use all clientsSeeds (not just top 3) to maintain fairness
       if (!combinedHash || !decimal) {
         const crypto = require('crypto');
         const seedString = this.activeRound.serverSeed +
@@ -596,10 +600,14 @@ export class SugarDaddyGameService {
         gameId: this.activeRound.roundId,
         gameUUID: this.activeRound.gameUUID,
         serverSeed: this.activeRound.serverSeed,
-        clientsSeeds: this.activeRound.clientsSeeds,
+        clientsSeeds: topClientsSeeds,
         combinedHash: combinedHash,
         decimal: decimal,
       };
+
+      this.logger.debug(
+        `[COEFF_HISTORY] Storing finished round: roundId=${this.activeRound.roundId} coeff=${this.activeRound.crashCoeff} clientsSeedsCount=${historyEntry.clientsSeeds.length}`,
+      );
 
       const redisClient = this.redisService.getClient();
       const historyKey = this.REDIS_KEY_COEFFICIENT_HISTORY;
@@ -615,6 +623,69 @@ export class SugarDaddyGameService {
         `[COEFF_HISTORY] Error storing finished round: ${error.message}`,
       );
     }
+  }
+
+  /**
+   * Get top N clientsSeeds based on win amount
+   * Returns top 3 (or fewer if less available) winners
+   */
+  private getTopClientsSeeds(limit: number = 3): Array<{
+    userId: string;
+    seed: string;
+    nickname: string;
+    gameAvatar: number | null;
+  }> {
+    if (!this.activeRound || !this.activeRound.bets || this.activeRound.bets.size === 0) {
+      return [];
+    }
+
+    // Get all bets and calculate total win amount per user
+    const userWinMap = new Map<string, { totalWin: number; bet: BetData }>();
+    
+    for (const bet of this.activeRound.bets.values()) {
+      const winAmount = parseFloat(bet.winAmount || '0');
+      const userId = bet.userId;
+      
+      if (userWinMap.has(userId)) {
+        const existing = userWinMap.get(userId)!;
+        existing.totalWin += winAmount;
+      } else {
+        userWinMap.set(userId, {
+          totalWin: winAmount,
+          bet: bet,
+        });
+      }
+    }
+
+    // Sort users by total win amount (descending)
+    const sortedUsers = Array.from(userWinMap.entries())
+      .sort((a, b) => b[1].totalWin - a[1].totalWin)
+      .slice(0, limit);
+
+    // Map to clientsSeeds format
+    const topClientsSeeds: Array<{
+      userId: string;
+      seed: string;
+      nickname: string;
+      gameAvatar: number | null;
+    }> = [];
+
+    for (const [userId, userData] of sortedUsers) {
+      // Find the client seed for this user
+      const clientSeed = this.activeRound.clientsSeeds.find(c => c.userId === userId);
+      
+      if (clientSeed) {
+        topClientsSeeds.push({
+          userId: clientSeed.userId,
+          seed: clientSeed.seed,
+          nickname: clientSeed.nickname,
+          gameAvatar: clientSeed.gameAvatar,
+        });
+      }
+      // Skip users without seeds (they shouldn't be in top list)
+    }
+
+    return topClientsSeeds;
   }
 
   /**
@@ -807,6 +878,17 @@ export class SugarDaddyGameService {
         }
       }
 
+      // Ensure clientsSeeds is properly deserialized as an array
+      let clientsSeeds: Array<{ userId: string; seed: string; nickname: string; gameAvatar: number | null }> = [];
+      if (roundData.clientsSeeds) {
+        if (Array.isArray(roundData.clientsSeeds)) {
+          clientsSeeds = roundData.clientsSeeds;
+        } else if (typeof roundData.clientsSeeds === 'object') {
+          // Handle case where it might be stored as an object
+          clientsSeeds = Object.values(roundData.clientsSeeds);
+        }
+      }
+
       this.activeRound = {
         roundId: roundData.roundId,
         gameUUID: roundData.gameUUID,
@@ -816,7 +898,7 @@ export class SugarDaddyGameService {
         startTime: roundData.startTime,
         bets: betsMap,
         serverSeed: roundData.serverSeed,
-        clientsSeeds: roundData.clientsSeeds || [],
+        clientsSeeds: clientsSeeds,
         combinedHash: roundData.combinedHash || '',
         decimal: roundData.decimal || '',
         isRunning: roundData.isRunning || false,

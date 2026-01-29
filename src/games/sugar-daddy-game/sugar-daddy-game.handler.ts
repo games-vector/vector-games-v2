@@ -890,23 +890,16 @@ export class SugarDaddyGameHandler implements IGameHandler {
     this.logger.log(
       `[AUTO_CASHOUT_EVENT] Starting: userId=${userId} playerGameId=${bet.playerGameId} winAmount=${bet.winAmount} coeffWin=${bet.coeffWin} gameCode=${gameCode || 'N/A'}`,
     );
-    this.logger.log(
-      `[AUTO_CASHOUT_EVENT] Bet data: ${JSON.stringify({ userId: bet.userId, playerGameId: bet.playerGameId, winAmount: bet.winAmount, coeffWin: bet.coeffWin, currency: bet.currency })}`,
-    );
 
     if (!this.server) {
       this.logger.error(`[AUTO_CASHOUT_EVENT] Server not set for userId=${userId}`);
       return;
     }
 
-    this.logger.log(`[AUTO_CASHOUT_EVENT] Server available: ${!!this.server}, server type: ${this.server?.constructor?.name}`);
-
     if (!this.server.sockets) {
       this.logger.error(`[AUTO_CASHOUT_EVENT] Server.sockets not available for userId=${userId}`);
       return;
     }
-
-    this.logger.log(`[AUTO_CASHOUT_EVENT] Server.sockets available: ${!!this.server.sockets}, sockets type: ${this.server.sockets?.constructor?.name}`);
 
     const payload = {
       success: true,
@@ -917,25 +910,23 @@ export class SugarDaddyGameHandler implements IGameHandler {
       playerGameId: bet.playerGameId,
     };
 
-    this.logger.log(`[AUTO_CASHOUT_EVENT] Payload: ${JSON.stringify(payload)}`);
-
     let socketsMatched = 0;
     let totalSockets = 0;
 
-    // Socket.IO v4: sockets.sockets is a Map
-    // Check if sockets.sockets exists before iterating
-    const socketsMap = this.server.sockets.sockets;
-    this.logger.log(
-      `[AUTO_CASHOUT_EVENT] socketsMap check: exists=${!!socketsMap}, type=${socketsMap?.constructor?.name}, isMap=${socketsMap instanceof Map}, hasForEach=${typeof socketsMap?.forEach === 'function'}`,
-    );
+  
+    let socketsMap: Map<string, any> | undefined;
+    
+    if (this.server.sockets instanceof Map) {
+      socketsMap = this.server.sockets as Map<string, any>;
+    } else if (this.server.sockets?.sockets instanceof Map) {
+      socketsMap = this.server.sockets.sockets as Map<string, any>;
+    }
 
     if (!socketsMap) {
       this.logger.warn(
-        `[AUTO_CASHOUT_EVENT] ⚠️ Server.sockets.sockets is undefined for userId=${userId}, using room broadcast fallback`,
+        `[AUTO_CASHOUT_EVENT] ⚠️ Could not find sockets Map for userId=${userId}, using room broadcast fallback`,
       );
-      // Fallback to room broadcast
       if (gameCode) {
-        this.logger.log(`[AUTO_CASHOUT_EVENT] Broadcasting to room: game:${gameCode}`);
         this.server.to(`game:${gameCode}`).emit('gameService-onWithdrawGame', {
           ...payload,
           targetUserId: userId,
@@ -944,72 +935,26 @@ export class SugarDaddyGameHandler implements IGameHandler {
       return;
     }
 
-    // Log the actual Map/array structure before iterating
-    try {
-      let mapSize: number | string = 'unknown';
-      let mapKeys: any = 'not iterable';
-      let mapEntries: any = 'not a Map';
-      
-      if (socketsMap instanceof Map) {
-        mapSize = socketsMap.size;
-        mapKeys = Array.from(socketsMap.keys()).slice(0, 10);
-        mapEntries = Array.from(socketsMap.entries()).slice(0, 5).map(([id, socket]: [any, any]) => ({
-          socketId: id,
-          socketUserId: socket?.data?.userId,
-          socketGameCode: socket?.data?.gameCode,
-        }));
-      } else if (Array.isArray(socketsMap)) {
-        const arr = socketsMap as any[];
-        mapSize = arr.length;
-        mapKeys = arr.map((_, i) => i).slice(0, 10);
-        mapEntries = 'is Array (not Map)';
-      }
-      
-      this.logger.log(
-        `[AUTO_CASHOUT_EVENT] socketsMap details: size=${mapSize}, keys sample=${JSON.stringify(mapKeys)}, entries sample=${JSON.stringify(mapEntries)}`,
-      );
-      this.logger.log(
-        `[AUTO_CASHOUT_EVENT] socketsMap full object: ${JSON.stringify({
-          type: socketsMap?.constructor?.name,
-          isMap: socketsMap instanceof Map,
-          isArray: Array.isArray(socketsMap),
-          size: mapSize,
-          hasForEach: typeof socketsMap?.forEach === 'function',
-          hasValues: typeof socketsMap?.values === 'function',
-          hasKeys: typeof socketsMap?.keys === 'function',
-        })}`,
-      );
-    } catch (logError: any) {
-      this.logger.warn(`[AUTO_CASHOUT_EVENT] Could not log socketsMap details: ${logError.message}`);
-    }
-
     // Iterate over the Map (Socket.IO v4 uses Map)
     try {
-      this.logger.log(`[AUTO_CASHOUT_EVENT] Starting socket iteration, socketsMap size: ${socketsMap.size || 'unknown'}`);
       socketsMap.forEach((socket, socketId) => {
         totalSockets++;
         const socketUserId = socket.data?.userId;
-        const socketGameCode = socket.data?.gameCode;
-        
-        this.logger.log(
-          `[AUTO_CASHOUT_EVENT] Checking socket: socketId=${socketId} socketUserId=${socketUserId} socketGameCode=${socketGameCode} targetUserId=${userId}`,
-        );
         
         if (socketUserId === userId) {
           socketsMatched++;
           this.logger.log(
-            `[AUTO_CASHOUT_EVENT] ✅ Match found! Emitting to socket: socketId=${socket.id} userId=${socketUserId} playerGameId=${bet.playerGameId}`,
+            `[AUTO_CASHOUT_EVENT] Emitting to socket: socketId=${socket.id} userId=${socketUserId} playerGameId=${bet.playerGameId}`,
           );
           socket.emit('gameService-onWithdrawGame', payload);
         }
       });
     } catch (error: any) {
       this.logger.error(
-        `[AUTO_CASHOUT_EVENT] Error iterating sockets: ${error.message}, stack: ${error.stack}, using room broadcast fallback`,
+        `[AUTO_CASHOUT_EVENT] Error iterating sockets: ${error.message}, using room broadcast fallback`,
       );
       // Fallback to room broadcast on error
       if (gameCode) {
-        this.logger.log(`[AUTO_CASHOUT_EVENT] Broadcasting to room (error fallback): game:${gameCode}`);
         this.server.to(`game:${gameCode}`).emit('gameService-onWithdrawGame', {
           ...payload,
           targetUserId: userId,
@@ -1019,7 +964,7 @@ export class SugarDaddyGameHandler implements IGameHandler {
     }
 
     this.logger.log(
-      `[AUTO_CASHOUT_EVENT] Result: userId=${userId} socketsMatched=${socketsMatched} totalSockets=${totalSockets} gameCode=${gameCode || 'N/A'}`,
+      `[AUTO_CASHOUT_EVENT] Result: userId=${userId} socketsMatched=${socketsMatched} totalSockets=${totalSockets}`,
     );
 
     if (socketsMatched === 0 && gameCode) {
@@ -1030,7 +975,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
         ...payload,
         targetUserId: userId,
       });
-      this.logger.log(`[AUTO_CASHOUT_EVENT] Room broadcast sent to game:${gameCode}`);
     }
   }
 
