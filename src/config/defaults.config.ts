@@ -107,7 +107,7 @@ const GAMES_CONFIG = {
     GAME_TYPE: 'CRASH',
     
     // RTP (Return to Player) Configuration (game-specific)
-    RTP: 97, // 97% RTP means house keeps 3%
+    RTP: 57, // 97% RTP means house keeps 3%
     
     // Bet Configuration (game-specific)
     BET_CONFIG: {

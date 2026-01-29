@@ -163,7 +163,6 @@ export class SugarDaddyGameService {
 
     if (this.activeRound.status === GameStatus.FINISH_GAME && this.activeRound.crashCoeff) {
       payload.coeffCrash = this.activeRound.crashCoeff;
-      // Fetch actual coefficients history from Redis (last 50 rounds)
       payload.coefficients = await this.getCoefficientsHistory(50);
     }
 
@@ -919,7 +918,6 @@ export class SugarDaddyGameService {
 
     if (this.activeRound.status === GameStatus.FINISH_GAME && this.activeRound.crashCoeff) {
       payload.coeffCrash = this.activeRound.crashCoeff;
-      // Fetch actual coefficients history from Redis (last 50 rounds)
       payload.coefficients = await this.getCoefficientsHistory(50);
     }
 

@@ -51,7 +51,6 @@ export class SugarDaddyGameBetService {
     userAvatar?: string | null,
   ): Promise<PlaceBetResponse> {
     try {
-      // Validate payload
       const validationError = this.validateBetPayload(payload);
       if (validationError) {
         return validationError;
@@ -186,7 +185,6 @@ export class SugarDaddyGameBetService {
     const roundId = String(activeRound.roundId);
     const platformTxId = uuidv4();
 
-    // Check idempotency key before wallet API call
     const idempotencyKey = this.redisService.generateIdempotencyKey(
       gameCode,
       userId,
@@ -257,7 +255,6 @@ export class SugarDaddyGameBetService {
         operatorId,
       });
     } catch (dbError) {
-      // DB write failed - refund user immediately
       this.logger.error(
         `[COMPENSATING_TX] DB write failed after wallet deduction: user=${userId} txId=${platformTxId} error=${(dbError as Error).message}. Initiating refund.`,
         (dbError as Error).stack,
@@ -281,7 +278,6 @@ export class SugarDaddyGameBetService {
         });
         
         if (refundResult.status !== '0000') {
-          // Critical: Refund failed - log for manual intervention
           this.logger.error(
             `[COMPENSATING_TX] CRITICAL: Refund failed after DB write failure: user=${userId} txId=${platformTxId} refundStatus=${refundResult.status}. Manual intervention required!`,
           );
@@ -291,14 +287,12 @@ export class SugarDaddyGameBetService {
           );
         }
       } catch (refundError) {
-        // Critical: Refund attempt itself failed
         this.logger.error(
           `[COMPENSATING_TX] CRITICAL: Refund attempt failed: user=${userId} txId=${platformTxId} error=${(refundError as Error).message}. Manual intervention required!`,
           (refundError as Error).stack,
         );
       }
       
-      // Return error to user
       return createErrorResponse(
         'Bet placement failed. Your balance has been refunded. Please try again.',
         SUGAR_DADDY_ERROR_CODES.BET_REJECTED,
@@ -339,7 +333,6 @@ export class SugarDaddyGameBetService {
       balanceCurrency: payload.currency,
     });
 
-    // Store idempotency key after successful bet placement
     await this.redisService.setIdempotencyKey(idempotencyKey, {
       platformTxId: platformTxId,
       response: successResponse,
@@ -365,7 +358,6 @@ export class SugarDaddyGameBetService {
     const roundId = activeRound ? String(activeRound.roundId) : 'pending';
     const platformTxId = uuidv4();
 
-    // Check idempotency key before wallet API call
     const idempotencyKey = this.redisService.generateIdempotencyKey(
       gameCode,
       userId,
@@ -446,7 +438,6 @@ export class SugarDaddyGameBetService {
 
       await this.sugarDaddyGameService.queueBetForNextRound(pendingBet);
     } catch (storageError) {
-      // Pending bet storage failed - refund user immediately
       this.logger.error(
         `[COMPENSATING_TX] Pending bet storage failed after wallet deduction: user=${userId} txId=${platformTxId} error=${(storageError as Error).message}. Initiating refund.`,
         (storageError as Error).stack,
@@ -470,7 +461,6 @@ export class SugarDaddyGameBetService {
         });
         
         if (refundResult.status !== '0000') {
-          // Critical: Refund failed - log for manual intervention
           this.logger.error(
             `[COMPENSATING_TX] CRITICAL: Refund failed after pending bet storage failure: user=${userId} txId=${platformTxId} refundStatus=${refundResult.status}. Manual intervention required!`,
           );
@@ -480,14 +470,12 @@ export class SugarDaddyGameBetService {
           );
         }
       } catch (refundError) {
-        // Critical: Refund attempt itself failed
         this.logger.error(
           `[COMPENSATING_TX] CRITICAL: Refund attempt failed: user=${userId} txId=${platformTxId} error=${(refundError as Error).message}. Manual intervention required!`,
           (refundError as Error).stack,
         );
       }
       
-      // Return error to user
       return createErrorResponse(
         'Bet queuing failed. Your balance has been refunded. Please try again.',
         SUGAR_DADDY_ERROR_CODES.BET_REJECTED,
@@ -521,7 +509,6 @@ export class SugarDaddyGameBetService {
       balanceCurrency: payload.currency,
     });
 
-    // Store idempotency key after successful bet queuing
     await this.redisService.setIdempotencyKey(idempotencyKey, {
       platformTxId: platformTxId,
       response: successResponse,

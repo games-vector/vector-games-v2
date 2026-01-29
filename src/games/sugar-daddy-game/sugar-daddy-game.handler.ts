@@ -253,7 +253,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
         this.logger.log(`[WS_GET_SEEDS] Client ${client.id} requested game seeds`);
         await this.handleGetGameSeeds(client, userId);
       } else if (data?.action === 'bet') {
-        // Extract bet data - support both payload object and top-level fields
         const payload = data.payload || data;
         const betPayload: PlaceBetPayload = {
           betAmount: payload.betAmount || data.betAmount || '',
@@ -264,20 +263,17 @@ export class SugarDaddyGameHandler implements IGameHandler {
         this.logger.log(`[WS_BET] Received bet action: ${JSON.stringify(betPayload)}`);
         await this.handleBetAction(client, betPayload, userId, agentId, operatorId, gameCode, authPayload);
       } else if (data?.action === 'cashout' || data?.action === 'withdraw') {
-        // Extract playerGameId - support both payload object and top-level field
         const payload = data.payload || {};
         const playerGameId = payload.playerGameId || data.playerGameId;
         const cashoutPayload = { playerGameId };
         this.logger.log(`[WS_CASHOUT] Received cashout/withdraw action: playerGameId=${playerGameId}`);
         await this.handleCashoutAction(client, cashoutPayload, userId, agentId, operatorId, gameCode);
       } else if (data?.action === 'cancelBet') {
-        // Extract cancel bet payload from data object
         const cancelPayload = data.payload || {};
         await this.handleCancelBetAction(client, cancelPayload, userId, agentId, operatorId, gameCode);
       }
     });
 
-    // Direct bet/cashout/withdraw handlers (for compatibility)
     client.on(WS_EVENTS.BET, async (payload: PlaceBetPayload) => {
       await this.handleBetAction(client, payload, userId, agentId, operatorId, gameCode, authPayload);
     });
@@ -483,7 +479,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
     try {
       const betHistory = await this.sugarDaddyGameBetService.getUserBetsHistory(userId, gameCode);
       
-      // Response format: [[bet1, bet2, ...]] - array containing array of bets
       this.logger.log(
         `[WS_GET_BETS_HISTORY] user=${userId} found ${betHistory[0]?.length || 0} bets`,
       );
@@ -642,7 +637,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
     }
   }
 
-  // Helper methods
   private async sendOnConnectGame(client: Socket, userId: string): Promise<void> {
     if (!userId) {
       this.logger.warn('[SEND_ON_CONNECT_GAME] No userId provided');
@@ -707,10 +701,8 @@ export class SugarDaddyGameHandler implements IGameHandler {
   }
 
   private sendChatMessages(client: Socket, language: string): void {
-    // Format chat room as "sugar-daddy-chat-{language}"
     const chatRoom = `sugar-daddy-chat-${language}`;
     
-    // Mock chat messages for testing
     const messages: ChatMessage[] = [
       {
         chatRoom: chatRoom,
@@ -898,16 +890,23 @@ export class SugarDaddyGameHandler implements IGameHandler {
     this.logger.log(
       `[AUTO_CASHOUT_EVENT] Starting: userId=${userId} playerGameId=${bet.playerGameId} winAmount=${bet.winAmount} coeffWin=${bet.coeffWin} gameCode=${gameCode || 'N/A'}`,
     );
+    this.logger.log(
+      `[AUTO_CASHOUT_EVENT] Bet data: ${JSON.stringify({ userId: bet.userId, playerGameId: bet.playerGameId, winAmount: bet.winAmount, coeffWin: bet.coeffWin, currency: bet.currency })}`,
+    );
 
     if (!this.server) {
       this.logger.error(`[AUTO_CASHOUT_EVENT] Server not set for userId=${userId}`);
       return;
     }
 
+    this.logger.log(`[AUTO_CASHOUT_EVENT] Server available: ${!!this.server}, server type: ${this.server?.constructor?.name}`);
+
     if (!this.server.sockets) {
       this.logger.error(`[AUTO_CASHOUT_EVENT] Server.sockets not available for userId=${userId}`);
       return;
     }
+
+    this.logger.log(`[AUTO_CASHOUT_EVENT] Server.sockets available: ${!!this.server.sockets}, sockets type: ${this.server.sockets?.constructor?.name}`);
 
     const payload = {
       success: true,
@@ -918,24 +917,109 @@ export class SugarDaddyGameHandler implements IGameHandler {
       playerGameId: bet.playerGameId,
     };
 
+    this.logger.log(`[AUTO_CASHOUT_EVENT] Payload: ${JSON.stringify(payload)}`);
+
     let socketsMatched = 0;
     let totalSockets = 0;
 
-    this.server.sockets.sockets.forEach((socket) => {
-      totalSockets++;
-      const socketUserId = socket.data?.userId;
-      
-      if (socketUserId === userId) {
-        socketsMatched++;
-        this.logger.log(
-          `[AUTO_CASHOUT_EVENT] Emitting to socket: socketId=${socket.id} userId=${socketUserId} playerGameId=${bet.playerGameId}`,
-        );
-        socket.emit('gameService-onWithdrawGame', payload);
+    // Socket.IO v4: sockets.sockets is a Map
+    // Check if sockets.sockets exists before iterating
+    const socketsMap = this.server.sockets.sockets;
+    this.logger.log(
+      `[AUTO_CASHOUT_EVENT] socketsMap check: exists=${!!socketsMap}, type=${socketsMap?.constructor?.name}, isMap=${socketsMap instanceof Map}, hasForEach=${typeof socketsMap?.forEach === 'function'}`,
+    );
+
+    if (!socketsMap) {
+      this.logger.warn(
+        `[AUTO_CASHOUT_EVENT] ⚠️ Server.sockets.sockets is undefined for userId=${userId}, using room broadcast fallback`,
+      );
+      // Fallback to room broadcast
+      if (gameCode) {
+        this.logger.log(`[AUTO_CASHOUT_EVENT] Broadcasting to room: game:${gameCode}`);
+        this.server.to(`game:${gameCode}`).emit('gameService-onWithdrawGame', {
+          ...payload,
+          targetUserId: userId,
+        });
       }
-    });
+      return;
+    }
+
+    // Log the actual Map/array structure before iterating
+    try {
+      let mapSize: number | string = 'unknown';
+      let mapKeys: any = 'not iterable';
+      let mapEntries: any = 'not a Map';
+      
+      if (socketsMap instanceof Map) {
+        mapSize = socketsMap.size;
+        mapKeys = Array.from(socketsMap.keys()).slice(0, 10);
+        mapEntries = Array.from(socketsMap.entries()).slice(0, 5).map(([id, socket]: [any, any]) => ({
+          socketId: id,
+          socketUserId: socket?.data?.userId,
+          socketGameCode: socket?.data?.gameCode,
+        }));
+      } else if (Array.isArray(socketsMap)) {
+        const arr = socketsMap as any[];
+        mapSize = arr.length;
+        mapKeys = arr.map((_, i) => i).slice(0, 10);
+        mapEntries = 'is Array (not Map)';
+      }
+      
+      this.logger.log(
+        `[AUTO_CASHOUT_EVENT] socketsMap details: size=${mapSize}, keys sample=${JSON.stringify(mapKeys)}, entries sample=${JSON.stringify(mapEntries)}`,
+      );
+      this.logger.log(
+        `[AUTO_CASHOUT_EVENT] socketsMap full object: ${JSON.stringify({
+          type: socketsMap?.constructor?.name,
+          isMap: socketsMap instanceof Map,
+          isArray: Array.isArray(socketsMap),
+          size: mapSize,
+          hasForEach: typeof socketsMap?.forEach === 'function',
+          hasValues: typeof socketsMap?.values === 'function',
+          hasKeys: typeof socketsMap?.keys === 'function',
+        })}`,
+      );
+    } catch (logError: any) {
+      this.logger.warn(`[AUTO_CASHOUT_EVENT] Could not log socketsMap details: ${logError.message}`);
+    }
+
+    // Iterate over the Map (Socket.IO v4 uses Map)
+    try {
+      this.logger.log(`[AUTO_CASHOUT_EVENT] Starting socket iteration, socketsMap size: ${socketsMap.size || 'unknown'}`);
+      socketsMap.forEach((socket, socketId) => {
+        totalSockets++;
+        const socketUserId = socket.data?.userId;
+        const socketGameCode = socket.data?.gameCode;
+        
+        this.logger.log(
+          `[AUTO_CASHOUT_EVENT] Checking socket: socketId=${socketId} socketUserId=${socketUserId} socketGameCode=${socketGameCode} targetUserId=${userId}`,
+        );
+        
+        if (socketUserId === userId) {
+          socketsMatched++;
+          this.logger.log(
+            `[AUTO_CASHOUT_EVENT] ✅ Match found! Emitting to socket: socketId=${socket.id} userId=${socketUserId} playerGameId=${bet.playerGameId}`,
+          );
+          socket.emit('gameService-onWithdrawGame', payload);
+        }
+      });
+    } catch (error: any) {
+      this.logger.error(
+        `[AUTO_CASHOUT_EVENT] Error iterating sockets: ${error.message}, stack: ${error.stack}, using room broadcast fallback`,
+      );
+      // Fallback to room broadcast on error
+      if (gameCode) {
+        this.logger.log(`[AUTO_CASHOUT_EVENT] Broadcasting to room (error fallback): game:${gameCode}`);
+        this.server.to(`game:${gameCode}`).emit('gameService-onWithdrawGame', {
+          ...payload,
+          targetUserId: userId,
+        });
+      }
+      return;
+    }
 
     this.logger.log(
-      `[AUTO_CASHOUT_EVENT] Result: userId=${userId} socketsMatched=${socketsMatched} totalSockets=${totalSockets}`,
+      `[AUTO_CASHOUT_EVENT] Result: userId=${userId} socketsMatched=${socketsMatched} totalSockets=${totalSockets} gameCode=${gameCode || 'N/A'}`,
     );
 
     if (socketsMatched === 0 && gameCode) {
@@ -946,6 +1030,7 @@ export class SugarDaddyGameHandler implements IGameHandler {
         ...payload,
         targetUserId: userId,
       });
+      this.logger.log(`[AUTO_CASHOUT_EVENT] Room broadcast sent to game:${gameCode}`);
     }
   }
 
