@@ -879,7 +879,7 @@ export class SugarDaddyGameBetService {
             .digest('hex');
         }
         
-        const fairness: any = {
+        let fairness: any = {
           serverSeed: serverSeed,
           hashedServerSeed: hashedServerSeed,
           clientsSeeds: coeffHistory?.clientsSeeds || [],
@@ -896,6 +896,17 @@ export class SugarDaddyGameBetService {
             }
           } catch (e) {
           }
+        }
+        
+        // If all fairness values are empty, return empty object
+        if (
+          !fairness.serverSeed &&
+          !fairness.hashedServerSeed &&
+          (!fairness.clientsSeeds || fairness.clientsSeeds.length === 0) &&
+          !fairness.combinedHash &&
+          !fairness.decimal
+        ) {
+          fairness = {};
         }
         
         return {

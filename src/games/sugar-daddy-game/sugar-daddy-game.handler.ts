@@ -771,10 +771,16 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
         if (!updated) {
           this.stopCoefficientBroadcast();
+          
+          // Get and broadcast FINISH_GAME state immediately
           const gameState = await this.sugarDaddyGameService.getCurrentGameState();
           if (gameState) {
+            this.logger.log(
+              `[COEFF_BROADCAST] Round ended, broadcasting FINISH_GAME state: roundId=${gameState.roundId} status=${gameState.status}`,
+            );
             this.broadcastGameStateChange(gameCode, gameState);
           }
+          
           if (this.onRoundEndCallback) {
             this.onRoundEndCallback();
           }
