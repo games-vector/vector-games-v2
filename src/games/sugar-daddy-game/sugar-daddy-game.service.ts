@@ -160,6 +160,7 @@ export class SugarDaddyGameService {
 
   /**
    * Update coefficient during game
+   * Uses linear progression at fixed speed (no time limit)
    * Also handles auto-cashout for bets with coeffAuto
    * Saves to Redis for multi-pod access
    */
@@ -174,10 +175,15 @@ export class SugarDaddyGameService {
     }
 
     const elapsed = Date.now() - this.activeRound.startTime;
+    const elapsedSeconds = elapsed / 1000;
     const crashCoeff = this.activeRound.crashCoeff || this.MAX_COEFF;
 
+    // Load coefficient speed from database or use default
+    const speed = await this.loadCoefficientSpeed('sugar-daddy');
+
+    // Linear progression: coeff = MIN_COEFF + (elapsedSeconds × speed)
     const newCoeff = Math.min(
-      this.MIN_COEFF + (elapsed / this.ROUND_DURATION_MS) * (crashCoeff - this.MIN_COEFF),
+      this.MIN_COEFF + (elapsedSeconds * speed),
       crashCoeff,
     );
 
@@ -188,7 +194,7 @@ export class SugarDaddyGameService {
 
     if (this.activeRound.currentCoeff >= crashCoeff) {
       this.logger.log(
-        `[UPDATE_COEFF] Coefficient reached crash point: currentCoeff=${this.activeRound.currentCoeff} crashCoeff=${crashCoeff} roundId=${this.activeRound.roundId}. Calling endRound()`,
+        `[UPDATE_COEFF] Coefficient reached crash point: currentCoeff=${this.activeRound.currentCoeff} crashCoeff=${crashCoeff} roundId=${this.activeRound.roundId} elapsed=${elapsedSeconds.toFixed(2)}s. Calling endRound()`,
       );
       await this.endRound();
       this.logger.log(
@@ -1234,6 +1240,36 @@ export class SugarDaddyGameService {
     this.rtp = DEFAULTS.GAMES.SUGAR_DADDY.RTP;
     this.logger.log(`[loadRTP] Using default RTP=${this.rtp}% for gameCode=${gameCode}`);
     return this.rtp;
+  }
+
+  /**
+   * Load coefficient speed from database or use default
+   * @param gameCode - Game code
+   * @returns Coefficient speed (coefficient increase per second)
+   */
+  private async loadCoefficientSpeed(gameCode: string): Promise<number> {
+    try {
+      const speedRaw = await this.gameConfigService.getConfig(gameCode, 'coefficientSpeed');
+      
+      if (speedRaw && speedRaw !== '{}') {
+        const speed = parseFloat(speedRaw);
+        if (!isNaN(speed) && speed > 0 && speed <= 10) {
+          this.logger.debug(`[loadCoefficientSpeed] Loaded speed=${speed} from database for ${gameCode}`);
+          return speed;
+        } else {
+          this.logger.warn(
+            `[loadCoefficientSpeed] Invalid speed value in database: ${speedRaw} (must be > 0 and <= 10), using default`,
+          );
+        }
+      }
+    } catch (error: any) {
+      this.logger.warn(
+        `[loadCoefficientSpeed] Failed to load speed from database: ${error.message}, using default`,
+      );
+    }
+    
+    // Fallback to default
+    return GAME_CONSTANTS.SUGAR_DADDY.COEFF_SPEED_PER_SECOND;
   }
 
   /**

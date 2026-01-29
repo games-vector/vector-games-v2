@@ -22,6 +22,7 @@ export const GAME_CONSTANTS = {
     RTP_BASE: 90,
     CRASH_COEFF_MIN: 1.00,
     CRASH_COEFF_MAX: 10.00,
+    COEFF_SPEED_PER_SECOND: 0.5, // Coefficient increase per second (linear progression)
     // Default coefficient distribution (industry standard)
     DEFAULT_DISTRIBUTION: {
       ranges: [
