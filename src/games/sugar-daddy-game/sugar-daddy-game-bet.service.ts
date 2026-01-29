@@ -173,9 +173,39 @@ export class SugarDaddyGameBetService {
     const betAmount = parseFloat(payload.betAmount);
     const betNumber = payload.betNumber ?? 0;
 
+    // Check for existing bets in active round
     const userBets = await this.sugarDaddyGameService.getUserBets(userId);
     const existingBetWithSameNumber = userBets.find(bet => bet.betNumber === betNumber);
+    
     if (existingBetWithSameNumber) {
+      // Verify bet is not refunded in database
+      const mappingKey = `sugar-daddy:bet:${existingBetWithSameNumber.playerGameId}`;
+      const externalPlatformTxId = await this.redisService.get<string>(mappingKey);
+      
+      if (externalPlatformTxId) {
+        const betRecord = await this.betService.getByExternalTxId(externalPlatformTxId, gameCode);
+        // If bet is refunded, ignore it and allow new bet
+        if (betRecord && betRecord.status === BetStatus.REFUNDED) {
+          this.logger.log(
+            `[PLACE_BET] Found refunded bet with betNumber ${betNumber}, allowing new bet`,
+          );
+        } else {
+          return createErrorResponse(
+            `Bet already exists for betNumber ${betNumber}. Please cancel the existing bet first.`,
+            SUGAR_DADDY_ERROR_CODES.DUPLICATE_BET_NUMBER,
+          );
+        }
+      } else {
+        // No mapping found, bet might be stale, allow new bet
+        this.logger.log(
+          `[PLACE_BET] Found bet with betNumber ${betNumber} but no mapping, allowing new bet`,
+        );
+      }
+    }
+
+    // Also check for pending bets with the same betNumber
+    const existingPendingBet = await this.sugarDaddyGameService.getPendingBet(userId, betNumber);
+    if (existingPendingBet) {
       return createErrorResponse(
         `Bet already exists for betNumber ${betNumber}. Please cancel the existing bet first.`,
         SUGAR_DADDY_ERROR_CODES.DUPLICATE_BET_NUMBER,
@@ -1066,6 +1096,8 @@ export class SugarDaddyGameBetService {
 
         if (activeRound) {
           activeRound.bets.delete(playerGameId);
+          // Note: The bet deletion will be persisted when the round is saved next time
+          // For immediate effect, we rely on the database status check in placeBetImmediately
         }
 
         await this.redisService.del(mappingKey);
