@@ -125,6 +125,7 @@ export class SugarDaddyGameService {
     await this.loadActiveRoundFromRedis();
 
     if (!this.activeRound) {
+      this.logger.debug(`[GET_CURRENT_GAME_STATE] No active round found`);
       return null;
     }
 
@@ -165,7 +166,14 @@ export class SugarDaddyGameService {
     if (this.activeRound.status === GameStatus.FINISH_GAME && this.activeRound.crashCoeff) {
       payload.coeffCrash = this.activeRound.crashCoeff;
       payload.coefficients = await this.getCoefficientsHistory(50);
+      this.logger.log(
+        `[GET_CURRENT_GAME_STATE] FINISH_GAME state: roundId=${payload.roundId} crashCoeff=${payload.coeffCrash} coefficientsCount=${payload.coefficients?.length || 0}`,
+      );
     }
+
+    this.logger.debug(
+      `[GET_CURRENT_GAME_STATE] Returning state: status=${payload.status} roundId=${payload.roundId} betsCount=${actualBets.length}`,
+    );
 
     return payload;
   }
@@ -195,6 +203,9 @@ export class SugarDaddyGameService {
     await this.loadActiveRoundFromRedis();
 
     if (!this.activeRound || !this.activeRound.isRunning) {
+      this.logger.debug(
+        `[UPDATE_COEFF] Cannot update: activeRound=${!!this.activeRound} isRunning=${this.activeRound?.isRunning || false}`,
+      );
       return false;
     }
 
@@ -212,7 +223,13 @@ export class SugarDaddyGameService {
     await this.saveCurrentCoefficientToRedis();
 
     if (this.activeRound.currentCoeff >= crashCoeff) {
+      this.logger.log(
+        `[UPDATE_COEFF] Coefficient reached crash point: currentCoeff=${this.activeRound.currentCoeff} crashCoeff=${crashCoeff} roundId=${this.activeRound.roundId}. Calling endRound()`,
+      );
       await this.endRound();
+      this.logger.log(
+        `[UPDATE_COEFF] endRound() completed, returning false to stop coefficient broadcast`,
+      );
       return false;
     }
 
@@ -288,8 +305,13 @@ export class SugarDaddyGameService {
     await this.loadActiveRoundFromRedis();
 
     if (!this.activeRound) {
+      this.logger.warn(`[END_ROUND] No active round to end`);
       return;
     }
+
+    this.logger.log(
+      `[END_ROUND] Starting endRound: roundId=${this.activeRound.roundId} currentStatus=${this.activeRound.status} crashCoeff=${this.activeRound.crashCoeff}`,
+    );
 
     this.activeRound.status = GameStatus.FINISH_GAME;
     this.activeRound.isRunning = false;
@@ -303,7 +325,7 @@ export class SugarDaddyGameService {
     await this.saveActiveRoundToRedis();
 
     this.logger.log(
-      `[SUGAR_DADDY] Round ended: roundId=${this.activeRound.roundId} crashCoeff=${this.activeRound.crashCoeff} previousBetsCount=${finishedBets.length}`,
+      `[END_ROUND] ✅ Round ended successfully: roundId=${this.activeRound.roundId} status=${this.activeRound.status} crashCoeff=${this.activeRound.crashCoeff} previousBetsCount=${finishedBets.length} betsCount=${this.activeRound.bets.size}`,
     );
   }
 
@@ -821,8 +843,9 @@ export class SugarDaddyGameService {
 
   /**
    * Save active round to Redis for multi-pod access
+   * Made public so bet service can save after bet cancellation
    */
-  private async saveActiveRoundToRedis(): Promise<void> {
+  async saveActiveRoundToRedis(): Promise<void> {
     if (!this.activeRound) {
       return;
     }

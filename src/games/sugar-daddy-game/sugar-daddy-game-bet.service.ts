@@ -987,11 +987,13 @@ export class SugarDaddyGameBetService {
     try {
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
       
+      // First, try to find the bet in active round by playerGameId
       let bet: BetData | null = null;
       if (activeRound) {
         bet = await this.sugarDaddyGameService.getBet(playerGameId);
       }
 
+      // If not found in active round, check if it's a pending bet
       let pendingBet: PendingBet | null = null;
       if (!bet) {
         const pendingBetMappingKey = `sugar-daddy:pending_bet:${playerGameId}`;
@@ -1000,12 +1002,58 @@ export class SugarDaddyGameBetService {
         if (pendingBetUserId && pendingBetUserId === userId) {
           const allPendingBets = await this.sugarDaddyGameService.getAllPendingBetsForUser(userId);
           pendingBet = allPendingBets.find(bet => bet.playerGameId === playerGameId) || null;
-          
-          await this.redisService.del(pendingBetMappingKey);
         }
       }
 
+      // If still not found, try to find by Redis mapping key (fallback for active bets)
       if (!bet && !pendingBet) {
+        const mappingKey = `sugar-daddy:bet:${playerGameId}`;
+        const externalPlatformTxId = await this.redisService.get<string>(mappingKey);
+        
+        if (externalPlatformTxId) {
+          // Found mapping, try to find bet in active round by matching properties
+          if (activeRound) {
+            const userBets = await this.sugarDaddyGameService.getUserBets(userId);
+            // Try to find bet by matching platformTxId from database
+            try {
+              const betRecord = await this.betService.getByExternalTxId(externalPlatformTxId, gameCode);
+              if (betRecord && betRecord.userId === userId && betRecord.status !== BetStatus.REFUNDED) {
+                // Find bet in active round that matches this bet record
+                const allBets = Array.from(activeRound.bets.values());
+                bet = allBets.find(b => {
+                  const betAmountMatch = Math.abs(parseFloat(b.betAmount) - parseFloat(betRecord.betAmount)) < 0.01;
+                  const currencyMatch = b.currency === betRecord.currency;
+                  const userIdMatch = b.userId === userId;
+                  const roundIdMatch = String(activeRound.roundId) === betRecord.roundId;
+                  
+                  return userIdMatch && betAmountMatch && currencyMatch && roundIdMatch;
+                }) || null;
+                
+                if (bet) {
+                  this.logger.log(
+                    `[CANCEL_BET] Found bet via fallback lookup: playerGameId=${bet.playerGameId} originalPlayerGameId=${playerGameId} platformTxId=${externalPlatformTxId}`,
+                  );
+                }
+              }
+            } catch (dbError) {
+              this.logger.debug(
+                `[CANCEL_BET] Could not fetch bet record for fallback: ${(dbError as Error).message}`,
+              );
+            }
+          }
+        }
+      }
+
+      // If still not found, check all pending bets for this user (by betNumber if we can infer it)
+      if (!bet && !pendingBet) {
+        const allPendingBets = await this.sugarDaddyGameService.getAllPendingBetsForUser(userId);
+        pendingBet = allPendingBets.find(bet => bet.playerGameId === playerGameId) || null;
+      }
+
+      if (!bet && !pendingBet) {
+        this.logger.warn(
+          `[CANCEL_BET] Bet not found: playerGameId=${playerGameId} userId=${userId} activeRound=${activeRound ? `exists (status=${activeRound.status}, roundId=${activeRound.roundId}, betsCount=${activeRound.bets.size})` : 'null'}`,
+        );
         return createErrorResponse(
           'Bet not found',
           SUGAR_DADDY_ERROR_CODES.BET_NOT_FOUND,
@@ -1034,12 +1082,29 @@ export class SugarDaddyGameBetService {
           );
         }
 
-        const mappingKey = `sugar-daddy:bet:${playerGameId}`;
-        const externalPlatformTxId = await this.redisService.get<string>(mappingKey);
+        // Use the actual bet's playerGameId (in case we found it via fallback)
+        const betPlayerGameId = bet.playerGameId || playerGameId;
+        let mappingKey = `sugar-daddy:bet:${betPlayerGameId}`;
+        let externalPlatformTxId = await this.redisService.get<string>(mappingKey);
+
+        // If mapping not found with bet's playerGameId, try the original playerGameId
+        if (!externalPlatformTxId && betPlayerGameId !== playerGameId) {
+          const fallbackMappingKey = `sugar-daddy:bet:${playerGameId}`;
+          const fallbackPlatformTxId = await this.redisService.get<string>(fallbackMappingKey);
+          if (fallbackPlatformTxId) {
+            this.logger.log(
+              `[CANCEL_BET] Found mapping with original playerGameId: betPlayerGameId=${betPlayerGameId} original=${playerGameId}`,
+            );
+            externalPlatformTxId = fallbackPlatformTxId;
+            mappingKey = fallbackMappingKey;
+            // Update bet's playerGameId to match the mapping
+            bet.playerGameId = playerGameId;
+          }
+        }
 
         if (!externalPlatformTxId) {
           this.logger.error(
-            `[CANCEL_BET] Could not find externalPlatformTxId for playerGameId=${playerGameId}`,
+            `[CANCEL_BET] Could not find externalPlatformTxId for playerGameId=${playerGameId} or betPlayerGameId=${betPlayerGameId}`,
           );
           return createErrorResponse(
             'Bet record not found',
@@ -1094,10 +1159,22 @@ export class SugarDaddyGameBetService {
           updatedBy: userId,
         });
 
-        if (activeRound) {
-          activeRound.bets.delete(playerGameId);
-          // Note: The bet deletion will be persisted when the round is saved next time
-          // For immediate effect, we rely on the database status check in placeBetImmediately
+        // Delete bet from active round
+        // Reload active round to ensure we have the latest state before deletion
+        const currentActiveRound = await this.sugarDaddyGameService.getActiveRound();
+        if (currentActiveRound) {
+          // Delete using the bet's actual playerGameId (which may have been updated)
+          const finalPlayerGameId = bet.playerGameId || playerGameId;
+          currentActiveRound.bets.delete(finalPlayerGameId);
+          
+          // Also try deleting with the original playerGameId in case it's different
+          if (finalPlayerGameId !== playerGameId) {
+            currentActiveRound.bets.delete(playerGameId);
+          }
+          
+          // Save the active round immediately to persist the deletion
+          // This ensures the game state broadcast shows the correct state
+          await this.sugarDaddyGameService.saveActiveRoundToRedis();
         }
 
         await this.redisService.del(mappingKey);

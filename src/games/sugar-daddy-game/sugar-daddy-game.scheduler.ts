@@ -201,14 +201,25 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
 
   private async endRound(): Promise<void> {
     if (!this.isLeader) {
+      this.logger.debug(`[SCHEDULER_END_ROUND] Not the leader, skipping endRound`);
       return;
     }
 
     try {
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
-      if (!activeRound || activeRound.status === GameStatus.FINISH_GAME) {
+      if (!activeRound) {
+        this.logger.warn(`[SCHEDULER_END_ROUND] No active round found`);
         return;
       }
+
+      if (activeRound.status === GameStatus.FINISH_GAME) {
+        this.logger.log(`[SCHEDULER_END_ROUND] Round already in FINISH_GAME state, skipping`);
+        return;
+      }
+
+      this.logger.log(
+        `[SCHEDULER_END_ROUND] Ending round: roundId=${activeRound.roundId} currentStatus=${activeRound.status}`,
+      );
 
       this.sugarDaddyGameHandler.stopCoefficientBroadcast();
 
@@ -222,10 +233,18 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
 
       const gameState = await this.sugarDaddyGameService.getCurrentGameState();
       if (gameState) {
+        this.logger.log(
+          `[SCHEDULER_END_ROUND] Broadcasting FINISH_GAME state: roundId=${gameState.roundId} status=${gameState.status} crashCoeff=${gameState.coeffCrash || 'N/A'} betsCount=${gameState.bets.values.length}`,
+        );
         this.sugarDaddyGameHandler.broadcastGameStateChange(this.GAME_CODE, gameState);
+        this.logger.log(
+          `[SCHEDULER_END_ROUND] ✅ FINISH_GAME state broadcasted successfully`,
+        );
+      } else {
+        this.logger.error(`[SCHEDULER_END_ROUND] ❌ Failed to get game state after endRound`);
       }
     } catch (error) {
-      this.logger.error(`[SUGAR_DADDY_SCHEDULER] Error ending round: ${error.message}`);
+      this.logger.error(`[SCHEDULER_END_ROUND] Error ending round: ${error.message}`, error.stack);
     }
   }
 

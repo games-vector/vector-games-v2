@@ -624,16 +624,51 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
   broadcastGameStateChange(gameCode: string | null, payload: GameStateChangePayload): void {
     if (!this.server || !this.server.sockets) {
+      this.logger.warn(
+        `[BROADCAST_STATE] Cannot broadcast: server not initialized. gameCode=${gameCode} status=${payload.status}`,
+      );
       return;
     }
 
     const eventName = WS_EVENTS.GAME_SERVICE_ON_CHANGE_STATE;
     const room = gameCode ? `game:${gameCode}` : null;
 
+    this.logger.log(
+      `[BROADCAST_STATE] Broadcasting game state: event=${eventName} room=${room || 'all'} status=${payload.status} roundId=${payload.roundId} betsCount=${payload.bets.values.length} crashCoeff=${payload.coeffCrash || 'N/A'}`,
+    );
+
     if (room) {
+      // Safely get client count from adapter if available
+      let clientCount = 0;
+      try {
+        if (this.server.sockets?.adapter?.rooms) {
+          const roomSockets = this.server.sockets.adapter.rooms.get(room);
+          clientCount = roomSockets ? roomSockets.size : 0;
+        }
+      } catch (error) {
+        this.logger.debug(
+          `[BROADCAST_STATE] Could not get client count from adapter: ${(error as Error).message}`,
+        );
+      }
+      
+      if (clientCount > 0) {
+        this.logger.log(
+          `[BROADCAST_STATE] Room ${room} has ${clientCount} connected clients`,
+        );
+      } else {
+        this.logger.debug(
+          `[BROADCAST_STATE] Room ${room} client count unavailable or 0 (will still broadcast)`,
+        );
+      }
+      
       this.server.to(room).emit(eventName, payload);
+      this.logger.log(
+        `[BROADCAST_STATE] ✅ Emitted ${eventName} to room ${room}${clientCount > 0 ? ` with ${clientCount} clients` : ''}`,
+      );
     } else {
+      this.logger.log(`[BROADCAST_STATE] Broadcasting to all clients (no room specified)`);
       this.server.emit(eventName, payload);
+      this.logger.log(`[BROADCAST_STATE] ✅ Emitted ${eventName} to all clients`);
     }
   }
 
@@ -770,18 +805,29 @@ export class SugarDaddyGameHandler implements IGameHandler {
         }
 
         if (!updated) {
+          this.logger.log(
+            `[COEFF_BROADCAST] Coefficient update returned false, round ended. Stopping broadcast and transitioning to FINISH_GAME`,
+          );
           this.stopCoefficientBroadcast();
           
           // Get and broadcast FINISH_GAME state immediately
           const gameState = await this.sugarDaddyGameService.getCurrentGameState();
           if (gameState) {
             this.logger.log(
-              `[COEFF_BROADCAST] Round ended, broadcasting FINISH_GAME state: roundId=${gameState.roundId} status=${gameState.status}`,
+              `[COEFF_BROADCAST] Round ended, preparing to broadcast FINISH_GAME state: roundId=${gameState.roundId} status=${gameState.status} crashCoeff=${gameState.coeffCrash || 'N/A'} betsCount=${gameState.bets.values.length} hasCoefficients=${!!gameState.coefficients}`,
             );
             this.broadcastGameStateChange(gameCode, gameState);
+            this.logger.log(
+              `[COEFF_BROADCAST] ✅ FINISH_GAME state broadcasted via coefficient broadcast`,
+            );
+          } else {
+            this.logger.error(
+              `[COEFF_BROADCAST] ❌ Failed to get game state after round ended`,
+            );
           }
           
           if (this.onRoundEndCallback) {
+            this.logger.log(`[COEFF_BROADCAST] Calling onRoundEndCallback`);
             this.onRoundEndCallback();
           }
         }
@@ -805,14 +851,23 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
     this.sugarDaddyGameService.getCurrentGameState().then((initialGameState) => {
       if (initialGameState) {
+        this.logger.log(
+          `[GAME_STATE_BROADCAST] Broadcasting initial game state: status=${initialGameState.status} roundId=${initialGameState.roundId}`,
+        );
         this.broadcastGameStateChange(gameCode, initialGameState);
       }
     });
 
+    this.logger.log(`[GAME_STATE_BROADCAST] Starting periodic game state broadcast (every 3s) for gameCode=${gameCode}`);
     this.gameStateBroadcastInterval = setInterval(async () => {
       const gameState = await this.sugarDaddyGameService.getCurrentGameState();
       if (gameState) {
+        this.logger.debug(
+          `[GAME_STATE_BROADCAST] Periodic broadcast: status=${gameState.status} roundId=${gameState.roundId} betsCount=${gameState.bets.values.length}`,
+        );
         this.broadcastGameStateChange(gameCode, gameState);
+      } else {
+        this.logger.warn(`[GAME_STATE_BROADCAST] No game state available for periodic broadcast`);
       }
     }, 3000);
   }
