@@ -230,10 +230,30 @@ export class SugarDaddyGameBetService {
     }>(idempotencyKey);
 
     if (idempotencyCheck.exists && idempotencyCheck.data) {
-      this.logger.log(
-        `[IDEMPOTENCY] Duplicate bet request detected: user=${userId} agent=${agentId} roundId=${roundId} amount=${betAmount} betNumber=${betNumber}. Returning stored response.`,
-      );
-      return idempotencyCheck.data.response;
+      // Verify that the cached playerGameId still exists in the active round
+      // If the bet was cancelled, the playerGameId won't exist and we need to create a new bet
+      const cachedPlayerGameId = idempotencyCheck.data.response.playerGameId;
+      if (cachedPlayerGameId) {
+        const cachedBet = await this.sugarDaddyGameService.getBet(cachedPlayerGameId);
+        if (cachedBet && cachedBet.userId === userId) {
+          this.logger.log(
+            `[IDEMPOTENCY] Duplicate bet request detected: user=${userId} agent=${agentId} roundId=${roundId} amount=${betAmount} betNumber=${betNumber}. Returning stored response.`,
+          );
+          return idempotencyCheck.data.response;
+        } else {
+          // Bet was cancelled or doesn't exist, clear idempotency key and create new bet
+          this.logger.log(
+            `[IDEMPOTENCY] Cached bet with playerGameId=${cachedPlayerGameId} no longer exists (likely cancelled). Clearing idempotency key and creating new bet.`,
+          );
+          await this.redisService.del(idempotencyKey);
+        }
+      } else {
+        // No playerGameId in cached response, clear and create new
+        this.logger.log(
+          `[IDEMPOTENCY] Cached response has no playerGameId. Clearing idempotency key and creating new bet.`,
+        );
+        await this.redisService.del(idempotencyKey);
+      }
     }
 
     this.logger.log(
@@ -403,10 +423,31 @@ export class SugarDaddyGameBetService {
     }>(idempotencyKey);
 
     if (idempotencyCheck.exists && idempotencyCheck.data) {
-      this.logger.log(
-        `[IDEMPOTENCY] Duplicate queued bet request detected: user=${userId} agent=${agentId} roundId=${roundId} amount=${betAmount} betNumber=${betNumber}. Returning stored response.`,
-      );
-      return idempotencyCheck.data.response;
+      // Verify that the cached playerGameId still exists as a pending bet
+      // If the bet was cancelled, the playerGameId won't exist and we need to create a new bet
+      const cachedPlayerGameId = idempotencyCheck.data.response.playerGameId;
+      if (cachedPlayerGameId) {
+        const allPendingBets = await this.sugarDaddyGameService.getAllPendingBetsForUser(userId);
+        const cachedPendingBet = allPendingBets.find(bet => bet.playerGameId === cachedPlayerGameId);
+        if (cachedPendingBet && cachedPendingBet.userId === userId) {
+          this.logger.log(
+            `[IDEMPOTENCY] Duplicate queued bet request detected: user=${userId} agent=${agentId} roundId=${roundId} amount=${betAmount} betNumber=${betNumber}. Returning stored response.`,
+          );
+          return idempotencyCheck.data.response;
+        } else {
+          // Pending bet was cancelled or doesn't exist, clear idempotency key and create new bet
+          this.logger.log(
+            `[IDEMPOTENCY] Cached pending bet with playerGameId=${cachedPlayerGameId} no longer exists (likely cancelled). Clearing idempotency key and creating new bet.`,
+          );
+          await this.redisService.del(idempotencyKey);
+        }
+      } else {
+        // No playerGameId in cached response, clear and create new
+        this.logger.log(
+          `[IDEMPOTENCY] Cached response has no playerGameId. Clearing idempotency key and creating new bet.`,
+        );
+        await this.redisService.del(idempotencyKey);
+      }
     }
 
     this.logger.log(
@@ -1179,6 +1220,24 @@ export class SugarDaddyGameBetService {
 
         await this.redisService.del(mappingKey);
 
+        // Clear idempotency key to prevent reusing the same playerGameId for a new bet
+        const currentRoundForIdempotency = await this.sugarDaddyGameService.getActiveRound();
+        if (currentRoundForIdempotency) {
+          const roundId = String(currentRoundForIdempotency.roundId);
+          const idempotencyKey = this.redisService.generateIdempotencyKey(
+            gameCode,
+            userId,
+            agentId,
+            roundId,
+            bet.betAmount,
+            bet.betNumber ?? 0,
+          );
+          await this.redisService.del(idempotencyKey);
+          this.logger.log(
+            `[CANCEL_BET] Cleared idempotency key for cancelled bet: roundId=${roundId} betNumber=${bet.betNumber ?? 0}`,
+          );
+        }
+
         this.logger.log(
           `[CANCEL_BET] ✅ Successfully cancelled bet: user=${userId} playerGameId=${playerGameId} amount=${betAmount}`,
         );
@@ -1234,6 +1293,22 @@ export class SugarDaddyGameBetService {
         } else {
           await this.sugarDaddyGameService.removePendingBet(userId);
         }
+
+        // Clear idempotency key for pending bet to prevent reusing the same playerGameId
+        const currentRoundForPending = await this.sugarDaddyGameService.getActiveRound();
+        const roundIdForPending = currentRoundForPending ? String(currentRoundForPending.roundId) : 'pending';
+        const idempotencyKeyForPending = this.redisService.generateIdempotencyKey(
+          gameCode,
+          userId,
+          agentId,
+          roundIdForPending,
+          pendingBet.betAmount,
+          pendingBet.betNumber ?? 0,
+        );
+        await this.redisService.del(idempotencyKeyForPending);
+        this.logger.log(
+          `[CANCEL_BET] Cleared idempotency key for cancelled pending bet: roundId=${roundIdForPending} betNumber=${pendingBet.betNumber ?? 0}`,
+        );
 
         this.logger.log(
           `[CANCEL_BET] ✅ Successfully cancelled pending bet: user=${userId} amount=${betAmount}`,
