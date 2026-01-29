@@ -12,8 +12,8 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
   private readonly GAME_CODE = DEFAULTS.SUGAR_DADDY.GAME_CODE;
   private readonly WAIT_TIME_MS = 10000;
   private readonly RESULT_DISPLAY_TIME_MS = 3000;
-  private readonly LEADER_RENEW_INTERVAL_MS = 15000; // Renew lock every 15 seconds
-  private readonly POD_ID = uuidv4(); // Unique pod identifier
+  private readonly LEADER_RENEW_INTERVAL_MS = 15000;
+  private readonly POD_ID = uuidv4();
   private waitTimer: NodeJS.Timeout | null = null;
   private nextRoundTimer: NodeJS.Timeout | null = null;
   private leaderRenewTimer: NodeJS.Timeout | null = null;
@@ -40,7 +40,6 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy() {
     this.stopGameLoop();
     this.stopLeaderElection();
-    // Release lock on shutdown
     this.sugarDaddyGameService.releaseLeaderLock(this.POD_ID).catch((error) => {
       this.logger.error(`[LEADER_ELECTION] Error releasing lock on shutdown: ${error.message}`);
     });
@@ -59,7 +58,6 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
       this.startGameLoop();
       this.startLeaderRenewal();
     } else {
-      // Retry leader election every 5 seconds
       this.leaderElectionTimer = setTimeout(() => {
         this.startLeaderElection();
       }, 5000);
@@ -150,7 +148,6 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
   }
 
   private async startNewRound(): Promise<void> {
-    // Double-check we're still the leader
     if (!this.isLeader) {
       this.logger.warn('[SUGAR_DADDY_SCHEDULER] Cannot start new round - not the leader');
       return;
@@ -242,9 +239,6 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
       if (!activeRound || activeRound.status !== GameStatus.WAIT_GAME) {
         return;
       }
-
-      // Keep game state broadcast running - it should continue every 3 seconds during IN_GAME
-      // Don't stop it here, let it continue broadcasting state changes
 
       await this.sugarDaddyGameService.startGame();
 

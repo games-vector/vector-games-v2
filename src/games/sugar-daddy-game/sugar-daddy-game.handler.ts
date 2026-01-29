@@ -202,28 +202,23 @@ export class SugarDaddyGameHandler implements IGameHandler {
   registerMessageHandlers(context: GameConnectionContext): void {
     const { client, userId, agentId, operatorId, gameCode, authPayload } = context;
 
-    // Latency test handler
     client.on(WS_EVENTS.GAME_SERVICE_LATENCY_TEST, (data: LatencyTestPayload, ack?: Function) => {
       if (typeof ack === 'function') {
         ack({ date: data.date });
       }
     });
 
-    // Chat handler
     client.on(WS_EVENTS.CHAT_SERVICE_JOIN_ROOM, (data: JoinChatRoomPayload) => {
-      // Support both 'language' and 'chatRoom' fields for compatibility
       const chatRoom = data.chatRoom || data.language || 'en';
       this.logger.log(`[WS_CHAT] Client ${client.id} joined chat room: ${chatRoom}`);
       this.sendChatMessages(client, chatRoom);
     });
 
-    // Bet history handler
     client.on('gameService-get-my-bets-history', async (data: any, ack?: (response: any) => void) => {
       this.logger.log(`[WS_GET_BETS_HISTORY] Client ${client.id} requested bet history`);
       await this.handleGetBetsHistory(client, userId, gameCode, ack);
     });
 
-    // Game service handler
     client.on('gameService', async (data: { action?: string; payload?: any; betAmount?: string; currency?: string; coeffAuto?: string; betNumber?: number; playerGameId?: string }) => {
       if (data?.action === 'join') {
         this.logger.log(`[WS_JOIN] Client ${client.id} joined game`);

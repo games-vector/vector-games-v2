@@ -74,18 +74,12 @@ export class CommonGameGateway
     private readonly redisService: RedisService,
   ) {}
 
-  /**
-   * Extract first value from query parameter (can be string or string[])
-   */
   private firstOf(value: string | string[] | undefined): string | undefined {
     if (!value) return undefined;
     if (Array.isArray(value)) return value[0];
     return value;
   }
 
-  /**
-   * Emit error and disconnect client
-   */
   private emitAndDisconnect(
     client: Socket,
     message: string,
@@ -98,15 +92,9 @@ export class CommonGameGateway
     client.disconnect(true);
   }
 
-  /**
-   * Handle new WebSocket connection
-   * Performs authentication and game validation, then routes to game handler
-   */
   async handleConnection(client: Socket): Promise<void> {
     const q: any = client.handshake.query;
     
-    // gameMode is the primary parameter (treated as gameCode)
-    // Support gameCode as fallback for backward compatibility
     const gameCode = this.firstOf(q?.gameMode) || this.firstOf(q?.gameCode);
     const operatorId = this.firstOf(q?.operatorId);
     let rawToken = this.firstOf(q?.Authorization);
@@ -138,12 +126,10 @@ export class CommonGameGateway
       return;
     }
 
-    // Handle token suffix issue (some clients send tokens ending with =4)
     if (rawToken.endsWith('=4') && rawToken.split('.').length === 3) {
       rawToken = rawToken.replace(/=4$/, '');
     }
 
-    // Verify JWT token
     let authPayload: UserTokenPayload | undefined;
     try {
       authPayload = await this.jwtTokens.verifyToken(rawToken);
@@ -162,14 +148,12 @@ export class CommonGameGateway
     const userId = authPayload.sub;
     const agentId = (authPayload as any).agentId || operatorId;
 
-    // Store connection data
     (client.data ||= {}).auth = authPayload;
     (client.data ||= {}).gameCode = gameCode;
     (client.data ||= {}).operatorId = operatorId;
     (client.data ||= {}).userId = userId;
     (client.data ||= {}).agentId = agentId;
 
-    // Validate game exists and is active
     try {
       const game = await this.gameService.getGame(gameCode);
       if (!game) {
@@ -206,7 +190,6 @@ export class CommonGameGateway
       return;
     }
 
-    // Validate agent has access to this game
     try {
       const hasAccess = await this.agentsService.hasGameAccess(agentId, gameCode);
       if (!hasAccess) {
@@ -232,7 +215,6 @@ export class CommonGameGateway
       return;
     }
 
-    // Get game handler
     const handler = this.gameDispatcher.getHandler(gameCode);
     if (!handler) {
       this.logger.warn(
@@ -246,7 +228,6 @@ export class CommonGameGateway
       return;
     }
 
-    // Join game room
     const gameRoom = `game:${gameCode}`;
     client.join(gameRoom);
 
@@ -257,7 +238,6 @@ export class CommonGameGateway
       `[WS_CONNECT] socketId=${client.id} user=${userId} agent=${agentId} gameCode=${gameCode} operatorId=${operatorId} joinedRoom=${gameRoom}`,
     );
 
-    // Create connection context
     const context: GameConnectionContext = {
       client,
       userId,
@@ -269,15 +249,8 @@ export class CommonGameGateway
     };
 
     try {
-      // Register handlers FIRST to ensure they're ready before any client messages arrive
-      // This prevents race conditions where frontend sends "join" before handlers are registered
       handler.registerMessageHandlers(context);
-      
-      // Then handle connection (async operations)
       await handler.handleConnection(context);
-      
-      // Register critical handlers AFTER regular handlers to ensure they're not removed
-      // Critical handlers must be last so they're called first (prependListener)
       this.registerCriticalHandlers(handler, context);
     } catch (error: any) {
       this.logger.error(
@@ -308,9 +281,6 @@ export class CommonGameGateway
     }
   }
 
-  /**
-   * Handle WebSocket disconnection
-   */
   async handleDisconnect(client: Socket): Promise<void> {
     const gameCode = client.data?.gameCode;
     const userId = client.data?.userId;
@@ -351,16 +321,9 @@ export class CommonGameGateway
     );
   }
 
-  /**
-   * Gateway initialization (NestJS hook)
-   */
   afterInit(server: Server): void {
     this.logger.log('Common Game Gateway initialized');
-    
-    // Set up Redis adapter for multi-pod support
     this.setupRedisAdapter(server);
-    
-    // Store server instance in dispatcher so it can notify handlers registered later
     this.gameDispatcher.setGatewayServer(server);
   }
 
@@ -369,15 +332,26 @@ export class CommonGameGateway
       const { createAdapter } = require('@socket.io/redis-adapter');
       const redisClient = this.redisService.getClient();
       
-      // Create pub/sub clients (adapter requires separate clients)
+      if (!redisClient) {
+        this.logger.warn('Redis client not available, skipping adapter setup');
+        return;
+      }
+      
       const pubClient = redisClient.duplicate();
       const subClient = redisClient.duplicate();
       
-      server.adapter(createAdapter(pubClient, subClient));
-      this.logger.log('✅ Redis adapter configured for Socket.IO - multi-pod support enabled');
+      const adapter = createAdapter(pubClient, subClient);
+      
+      const io = (server as any).server || (server as any).io || server;
+      
+      if (io && io.adapter) {
+        io.adapter = adapter;
+        this.logger.log('✅ Redis adapter configured for Socket.IO - multi-pod support enabled');
+      } else {
+        this.logger.warn('Could not set Redis adapter: server structure not recognized. Continuing without adapter (single-pod mode).');
+      }
     } catch (error) {
-      this.logger.error(`Failed to setup Redis adapter: ${(error as Error).message}. Continuing without adapter (single-pod mode).`);
-      // Continue without adapter - system will work in single-pod mode
+      this.logger.warn(`Failed to setup Redis adapter: ${(error as Error).message}. Continuing without adapter (single-pod mode).`);
     }
   }
 

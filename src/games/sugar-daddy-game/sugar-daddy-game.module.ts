@@ -23,11 +23,11 @@ import { initializeGameModule, IBaseGameModule } from '../interfaces/base-game-m
   imports: [
     ScheduleModule.forRoot(),
     JwtTokenModule,
-    UserModule, // For UserService
-    AgentsModule, // For AgentsService
+    UserModule,
+    AgentsModule,
     RedisModule,
-    GameModule, // Import GameModule to access GameService
-    GameConfigModule, // Import GameConfigModule to access GameConfigService
+    GameModule,
+    GameConfigModule,
   ],
   providers: [
     SugarDaddyGameService,
@@ -49,7 +49,6 @@ export class SugarDaddyGameModule implements OnModuleInit, IBaseGameModule {
     private readonly gameRegistry: GameRegistryService,
     private readonly sugarDaddyGameHandler: SugarDaddyGameHandler,
   ) {
-    // GameDispatcherService should be available from GamesModule (@Global)
     if (!this.gameDispatcher) {
       this.logger.error('[SUGAR_DADDY_MODULE] GameDispatcherService is not available!');
     }
@@ -84,7 +83,6 @@ export class SugarDaddyGameModule implements OnModuleInit, IBaseGameModule {
       this.logger,
         );
 
-    // Refresh registry after registration
     this.gameRegistry.refreshRegistry();
   }
 }
