@@ -128,7 +128,8 @@ export class SugarDaddyGameService {
       return null;
     }
 
-    const actualBets: BetData[] = Array.from(this.activeRound.bets.values());
+    const actualBets: BetData[] = Array.from(this.activeRound.bets.values())
+      .sort((a, b) => parseFloat(b.betAmount || '0') - parseFloat(a.betAmount || '0')); // Sort by betAmount descending
     const totalBetsAmount = actualBets.reduce(
       (sum, bet) => sum + parseFloat(bet.betAmount || '0'),
       0,
@@ -575,8 +576,20 @@ export class SugarDaddyGameService {
     }
 
     try {
-      // Get top 3 winners based on win amount
+      // Reload from Redis to ensure we have latest clientsSeeds
+      await this.loadActiveRoundFromRedis();
+      
+      if (!this.activeRound) {
+        this.logger.error(`[COEFF_HISTORY] Active round is null after reload`);
+        return;
+      }
+
+      // Get top 3 clientsSeeds (first 3 available, no sorting)
       const topClientsSeeds = this.getTopClientsSeeds(3);
+      
+      this.logger.log(
+        `[COEFF_HISTORY] Preparing to store: roundId=${this.activeRound.roundId} clientsSeedsCount=${topClientsSeeds.length} activeRoundClientsSeedsCount=${this.activeRound.clientsSeeds?.length || 0}`,
+      );
 
       let combinedHash = this.activeRound.combinedHash;
       let decimal = this.activeRound.decimal;
@@ -626,8 +639,8 @@ export class SugarDaddyGameService {
   }
 
   /**
-   * Get top N clientsSeeds based on win amount
-   * Returns top 3 (or fewer if less available) winners
+   * Get top N clientsSeeds (first N available, no sorting)
+   * Returns top 3 (or fewer if less available) as they are
    */
   private getTopClientsSeeds(limit: number = 3): Array<{
     userId: string;
@@ -635,57 +648,46 @@ export class SugarDaddyGameService {
     nickname: string;
     gameAvatar: number | null;
   }> {
-    if (!this.activeRound || !this.activeRound.bets || this.activeRound.bets.size === 0) {
+    if (!this.activeRound) {
+      this.logger.warn(`[GET_TOP_CLIENTS_SEEDS] Active round is null`);
       return [];
     }
 
-    // Get all bets and calculate total win amount per user
-    const userWinMap = new Map<string, { totalWin: number; bet: BetData }>();
-    
-    for (const bet of this.activeRound.bets.values()) {
-      const winAmount = parseFloat(bet.winAmount || '0');
-      const userId = bet.userId;
-      
-      if (userWinMap.has(userId)) {
-        const existing = userWinMap.get(userId)!;
-        existing.totalWin += winAmount;
-      } else {
-        userWinMap.set(userId, {
-          totalWin: winAmount,
-          bet: bet,
-        });
-      }
+    // If clientsSeeds exists and has data, return first N
+    if (this.activeRound.clientsSeeds && this.activeRound.clientsSeeds.length > 0) {
+      const topSeeds = this.activeRound.clientsSeeds.slice(0, limit);
+      this.logger.debug(
+        `[GET_TOP_CLIENTS_SEEDS] Returning ${topSeeds.length} clientsSeeds from activeRound (total: ${this.activeRound.clientsSeeds.length})`,
+      );
+      return topSeeds;
     }
 
-    // Sort users by total win amount (descending)
-    const sortedUsers = Array.from(userWinMap.entries())
-      .sort((a, b) => b[1].totalWin - a[1].totalWin)
-      .slice(0, limit);
-
-    // Map to clientsSeeds format
-    const topClientsSeeds: Array<{
-      userId: string;
-      seed: string;
-      nickname: string;
-      gameAvatar: number | null;
-    }> = [];
-
-    for (const [userId, userData] of sortedUsers) {
-      // Find the client seed for this user
-      const clientSeed = this.activeRound.clientsSeeds.find(c => c.userId === userId);
+    // Fallback: try to get from bets if clientsSeeds is empty
+    if (this.activeRound.bets && this.activeRound.bets.size > 0) {
+      const clientsSeedsMap = new Map<string, { userId: string; seed: string; nickname: string; gameAvatar: number | null }>();
+      const crypto = require('crypto');
       
-      if (clientSeed) {
-        topClientsSeeds.push({
-          userId: clientSeed.userId,
-          seed: clientSeed.seed,
-          nickname: clientSeed.nickname,
-          gameAvatar: clientSeed.gameAvatar,
-        });
+      for (const bet of this.activeRound.bets.values()) {
+        if (!clientsSeedsMap.has(bet.userId) && clientsSeedsMap.size < limit) {
+          const userSeed = crypto.randomBytes(8).toString('hex');
+          clientsSeedsMap.set(bet.userId, {
+            userId: bet.userId,
+            seed: userSeed,
+            nickname: bet.nickname || `user${bet.userId}`,
+            gameAvatar: bet.gameAvatar || null,
+          });
+        }
       }
-      // Skip users without seeds (they shouldn't be in top list)
+      
+      const topSeeds = Array.from(clientsSeedsMap.values());
+      this.logger.debug(
+        `[GET_TOP_CLIENTS_SEEDS] Generated ${topSeeds.length} clientsSeeds from bets (fallback)`,
+      );
+      return topSeeds;
     }
 
-    return topClientsSeeds;
+    this.logger.warn(`[GET_TOP_CLIENTS_SEEDS] No clientsSeeds available and no bets found`);
+    return [];
   }
 
   /**
@@ -965,7 +967,8 @@ export class SugarDaddyGameService {
       return null;
     }
 
-    const actualBets: BetData[] = Array.from(this.activeRound.bets.values());
+    const actualBets: BetData[] = Array.from(this.activeRound.bets.values())
+      .sort((a, b) => parseFloat(b.betAmount || '0') - parseFloat(a.betAmount || '0')); // Sort by betAmount descending
     const totalBetsAmount = actualBets.reduce(
       (sum, bet) => sum + parseFloat(bet.betAmount || '0'),
       0,
