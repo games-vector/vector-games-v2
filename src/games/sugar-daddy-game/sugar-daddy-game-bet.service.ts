@@ -115,8 +115,8 @@ export class SugarDaddyGameBetService {
       );
     }
 
-    const minBet = parseFloat(DEFAULTS.AVIATOR.BET_CONFIG.minBetAmount);
-    const maxBet = parseFloat(DEFAULTS.AVIATOR.BET_CONFIG.maxBetAmount);
+    const minBet = parseFloat(DEFAULTS.SUGAR_DADDY.BET_CONFIG.minBetAmount);
+    const maxBet = parseFloat(DEFAULTS.SUGAR_DADDY.BET_CONFIG.maxBetAmount);
     if (betAmount < minBet || betAmount > maxBet) {
       return createErrorResponse(
         `Bet amount must be between ${minBet} and ${maxBet}`,

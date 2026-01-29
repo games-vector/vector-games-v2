@@ -31,7 +31,7 @@ const WS_EVENTS = {
 
 @Injectable()
 export class SugarDaddyGameHandler implements IGameHandler {
-  readonly gameCode = DEFAULTS.AVIATOR.GAME_CODE; // Note: AVIATOR config key is used for Sugar Daddy
+  readonly gameCode = DEFAULTS.SUGAR_DADDY.GAME_CODE;
 
   private readonly logger = new Logger(SugarDaddyGameHandler.name);
   private server: Server | null = null;
@@ -152,24 +152,24 @@ export class SugarDaddyGameHandler implements IGameHandler {
         `[WS_PLATFORM_MESSAGES] Failed to send platform messages: ${error.message}`,
       );
       const balance = {
-        currency: DEFAULTS.AVIATOR.DEFAULT_CURRENCY,
+        currency: DEFAULTS.SUGAR_DADDY.DEFAULT_CURRENCY,
         balance: DEFAULTS.CURRENCY.DEFAULT_BALANCE,
       };
-      const defaultCurrency = DEFAULTS.AVIATOR.DEFAULT_CURRENCY;
+      const defaultCurrency = DEFAULTS.SUGAR_DADDY.DEFAULT_CURRENCY;
       const betsRanges = {
-        [defaultCurrency]: DEFAULTS.AVIATOR.BET_RANGES[defaultCurrency] || [
-          DEFAULTS.AVIATOR.BET_CONFIG.minBetAmount,
-          DEFAULTS.AVIATOR.BET_CONFIG.maxBetAmount,
+        [defaultCurrency]: DEFAULTS.SUGAR_DADDY.BET_RANGES[defaultCurrency] || [
+          DEFAULTS.SUGAR_DADDY.BET_CONFIG.minBetAmount,
+          DEFAULTS.SUGAR_DADDY.BET_CONFIG.maxBetAmount,
         ],
       };
       const betConfig = {
         [defaultCurrency]: {
-          betPresets: DEFAULTS.AVIATOR.BET_CONFIG.betPresets,
-          minBetAmount: DEFAULTS.AVIATOR.BET_CONFIG.minBetAmount,
-          maxBetAmount: DEFAULTS.AVIATOR.BET_CONFIG.maxBetAmount,
-          maxWinAmount: DEFAULTS.AVIATOR.BET_CONFIG.maxWinAmount,
-          defaultBetAmount: DEFAULTS.AVIATOR.BET_CONFIG.defaultBetAmount,
-          decimalPlaces: DEFAULTS.AVIATOR.BET_CONFIG.decimalPlaces,
+          betPresets: DEFAULTS.SUGAR_DADDY.BET_CONFIG.betPresets,
+          minBetAmount: DEFAULTS.SUGAR_DADDY.BET_CONFIG.minBetAmount,
+          maxBetAmount: DEFAULTS.SUGAR_DADDY.BET_CONFIG.maxBetAmount,
+          maxWinAmount: DEFAULTS.SUGAR_DADDY.BET_CONFIG.maxWinAmount,
+          defaultBetAmount: DEFAULTS.SUGAR_DADDY.BET_CONFIG.defaultBetAmount,
+          decimalPlaces: DEFAULTS.SUGAR_DADDY.BET_CONFIG.decimalPlaces,
         },
       };
       const myData = {
@@ -233,7 +233,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
         const gameState = await this.sugarDaddyGameService.getCurrentGameState();
         if (gameState) {
-          this.logger.log(`[WS_JOIN] Sending current game state to client ${client.id}: status=${gameState.status} roundId=${gameState.roundId}`);
           client.emit(WS_EVENTS.GAME_SERVICE_ON_CHANGE_STATE, gameState);
         } else {
           const defaultGameState: GameStateChangePayload = {
@@ -249,13 +248,11 @@ export class SugarDaddyGameHandler implements IGameHandler {
               values: [],
             },
           };
-          this.logger.log(`[WS_JOIN] Sending default game state to client ${client.id} (no active game)`);
           client.emit(WS_EVENTS.GAME_SERVICE_ON_CHANGE_STATE, defaultGameState);
         }
       } else if (data?.action === 'get-game-config') {
         this.logger.log(`[WS_GET_CONFIG] Client ${client.id} requested game config`);
         const configPayload = {};
-        this.logger.debug(`[WS_GET_CONFIG] Emitting ${WS_EVENTS.GAME_SERVICE_ON_GAME_CONFIG} with payload: ${JSON.stringify(configPayload)}`);
         client.emit(WS_EVENTS.GAME_SERVICE_ON_GAME_CONFIG, configPayload);
       } else if (data?.action === 'getGameSeeds') {
         this.logger.log(`[WS_GET_SEEDS] Client ${client.id} requested game seeds`);
@@ -622,13 +619,11 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
   broadcastCoefficientUpdate(gameCode: string | null, payload: CoefficientChangePayload): void {
     if (!this.server || !this.server.sockets) {
-      this.logger.warn(`[BROADCAST] Server not ready, skipping coefficient broadcast`);
       return;
     }
 
     const eventName = WS_EVENTS.GAME_SERVICE_ON_CHANGE_COEFF;
     const room = gameCode ? `game:${gameCode}` : null;
-    this.logger.debug(`[BROADCAST] Sending ${eventName} to room=${room || 'all'} coeff=${payload.coeff} gameCode=${gameCode || 'N/A'}`);
 
     if (room) {
       this.server.to(room).emit(eventName, payload);
@@ -639,13 +634,11 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
   broadcastGameStateChange(gameCode: string | null, payload: GameStateChangePayload): void {
     if (!this.server || !this.server.sockets) {
-      this.logger.warn(`[BROADCAST] Server not ready, skipping game state broadcast`);
       return;
     }
 
     const eventName = WS_EVENTS.GAME_SERVICE_ON_CHANGE_STATE;
     const room = gameCode ? `game:${gameCode}` : null;
-    this.logger.debug(`[BROADCAST] Sending ${eventName} to room=${room || 'all'} status=${payload.status} roundId=${payload.roundId} gameCode=${gameCode || 'N/A'}`);
 
     if (room) {
       this.server.to(room).emit(eventName, payload);
@@ -714,9 +707,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
       coefficients: coefficients,
     };
 
-    this.logger.debug(
-      `[SEND_ON_CONNECT_GAME] userId=${userId} myBets=${myBets.length} myNextGameBets=${myNextGameBets.length}`,
-    );
 
     client.emit(WS_EVENTS.GAME_SERVICE_ON_CONNECT_GAME, payload);
   }
@@ -762,7 +752,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
       },
     ];
 
-    this.logger.debug(`[SEND_CHAT_MESSAGES] Sending ${messages.length} mock messages for room: ${chatRoom}`);
     client.emit(WS_EVENTS.CHAT_SERVICE_MESSAGES, messages);
   }
 
@@ -770,8 +759,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
     if (this.coefficientUpdateInterval) {
       this.stopCoefficientBroadcast();
     }
-
-    this.logger.log(`[SUGAR_DADDY] Starting coefficient broadcast (gameCode: ${gameCode || 'all'})`);
 
     this.coefficientUpdateInterval = setInterval(async () => {
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
@@ -781,15 +768,11 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
         const coeff = await this.sugarDaddyGameService.getCurrentCoefficient();
         if (coeff) {
-          this.logger.debug(`[COEFF_BROADCAST] Broadcasting coefficient: ${coeff.coeff}`);
           this.broadcastCoefficientUpdate(gameCode, coeff);
         }
 
         const autoCashoutBets = await this.sugarDaddyGameService.getAutoCashoutBets();
         if (autoCashoutBets.length > 0) {
-          this.logger.debug(
-            `[COEFF_BROADCAST] Found ${autoCashoutBets.length} bets for auto-cashout`,
-          );
           for (const { playerGameId, bet } of autoCashoutBets) {
             this.processAutoCashout(playerGameId, bet, gameCode).catch((error) => {
               this.logger.error(
@@ -800,7 +783,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
         }
 
         if (!updated) {
-          this.logger.log(`[COEFF_BROADCAST] Round ended, stopping coefficient broadcast`);
           this.stopCoefficientBroadcast();
           const gameState = await this.sugarDaddyGameService.getCurrentGameState();
           if (gameState) {
@@ -811,7 +793,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
           }
         }
       } else {
-        this.logger.debug(`[COEFF_BROADCAST] Not in IN_GAME state (status=${activeRound?.status}, isRunning=${activeRound?.isRunning}), stopping coefficient broadcast`);
         this.stopCoefficientBroadcast();
       }
     }, 200);
@@ -821,7 +802,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
     if (this.coefficientUpdateInterval) {
       clearInterval(this.coefficientUpdateInterval);
       this.coefficientUpdateInterval = null;
-      this.logger.log('[SUGAR_DADDY] Stopped coefficient broadcast');
     }
   }
 
@@ -830,11 +810,8 @@ export class SugarDaddyGameHandler implements IGameHandler {
       this.stopGameStateBroadcast();
     }
 
-    this.logger.log(`[SUGAR_DADDY] Starting game state broadcast (gameCode: ${gameCode || 'all'}) - polling every 3 seconds for all states`);
-
     this.sugarDaddyGameService.getCurrentGameState().then((initialGameState) => {
       if (initialGameState) {
-        this.logger.log(`[SUGAR_DADDY] Broadcasting initial game state: status=${initialGameState.status} roundId=${initialGameState.roundId}`);
         this.broadcastGameStateChange(gameCode, initialGameState);
       }
     });
@@ -842,10 +819,7 @@ export class SugarDaddyGameHandler implements IGameHandler {
     this.gameStateBroadcastInterval = setInterval(async () => {
       const gameState = await this.sugarDaddyGameService.getCurrentGameState();
       if (gameState) {
-        this.logger.debug(`[SUGAR_DADDY] Periodic broadcast: status=${gameState.status} roundId=${gameState.roundId} waitTime=${gameState.waitTime}`);
         this.broadcastGameStateChange(gameCode, gameState);
-      } else {
-        this.logger.warn(`[SUGAR_DADDY] No game state available for broadcast`);
       }
     }, 3000);
   }
@@ -854,7 +828,6 @@ export class SugarDaddyGameHandler implements IGameHandler {
     if (this.gameStateBroadcastInterval) {
       clearInterval(this.gameStateBroadcastInterval);
       this.gameStateBroadcastInterval = null;
-      this.logger.log('[SUGAR_DADDY] Stopped game state broadcast');
     }
   }
 

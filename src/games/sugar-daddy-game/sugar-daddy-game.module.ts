@@ -18,7 +18,6 @@ import { initializeGameModule, IBaseGameModule } from '../interfaces/base-game-m
  * Sugar Daddy Game Module
  * 
  * Handles multiplayer crash game logic with WebSocket communication
- * (Renamed from Aviator)
  */
 @Module({
   imports: [
@@ -29,7 +28,6 @@ import { initializeGameModule, IBaseGameModule } from '../interfaces/base-game-m
     RedisModule,
     GameModule, // Import GameModule to access GameService
     GameConfigModule, // Import GameConfigModule to access GameConfigService
-    // WalletService and BetService are available globally via WalletConfigModule and BetConfigModule
   ],
   providers: [
     SugarDaddyGameService,
@@ -62,7 +60,7 @@ export class SugarDaddyGameModule implements OnModuleInit, IBaseGameModule {
   }
 
   getGameCode(): string {
-    return DEFAULTS.AVIATOR.GAME_CODE; // Note: AVIATOR config key is used for Sugar Daddy
+    return DEFAULTS.SUGAR_DADDY.GAME_CODE;
   }
 
   getAdditionalGameCodes(): string[] {
@@ -74,10 +72,10 @@ export class SugarDaddyGameModule implements OnModuleInit, IBaseGameModule {
       this,
       {
         gameCode: this.getGameCode(),
-          gameName: DEFAULTS.AVIATOR.GAME_NAME,
-          platform: DEFAULTS.AVIATOR.PLATFORM,
-          gameType: DEFAULTS.AVIATOR.GAME_TYPE,
-        settleType: DEFAULTS.AVIATOR.GAME_PAYLOADS.SETTLE_TYPE,
+          gameName: DEFAULTS.SUGAR_DADDY.GAME_NAME,
+          platform: DEFAULTS.SUGAR_DADDY.PLATFORM,
+          gameType: DEFAULTS.SUGAR_DADDY.GAME_TYPE,
+        settleType: DEFAULTS.SUGAR_DADDY.GAME_PAYLOADS.SETTLE_TYPE,
           isActive: true,
         additionalGameCodes: this.getAdditionalGameCodes(),
       },

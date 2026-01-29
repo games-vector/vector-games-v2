@@ -1,5 +1,5 @@
 /**
- * DTOs for Aviator game state and events
+ * DTOs for Sugar Daddy game state and events
  */
 
 export enum GameStatus {

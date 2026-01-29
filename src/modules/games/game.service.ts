@@ -74,7 +74,7 @@ export class GameService implements GameValidationService, WalletApiAdapter {
             gameCode: params.gameCode,
             gameName: params.gameName,
             platform: params.platform || 'In-out',
-            gameType: params.gameType || 'AVIATOR',
+            gameType: params.gameType || 'SUGAR_DADDY',
             settleType: params.settleType || 'platformTxId',
             isActive: params.isActive !== undefined ? params.isActive : true,
         });

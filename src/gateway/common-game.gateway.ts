@@ -42,7 +42,7 @@ const CONNECTION_ERRORS = {
  * Routes connections and messages to game-specific handlers based on gameCode query parameter.
  * 
  * Connection URL format:
- * wss://api.example.com/io?gameMode=aviatorFly&operatorId=xxx&Authorization=xxx
+ * wss://api.example.com/io?gameMode=sugarDaddy&operatorId=xxx&Authorization=xxx
  * (gameMode is treated as gameCode; gameCode is supported as fallback for backward compatibility)
  */
 @WebSocketGateway({

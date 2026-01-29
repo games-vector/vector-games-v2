@@ -5,10 +5,10 @@ import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
 import appConfig from './config/app.config';
 import databaseConfig from './config/database.config';
 import redisConfig from './config/redis.config';
-import jwtConfig from './config/jwt.config';
 import { DEFAULTS } from './config/defaults.config';
 
-import { UserModule, AgentsModule, WalletAuditModule, WalletRetryModule, JwtTokenModule, WalletModule } from '@games-vector/game-core';
+import { UserModule, AgentsModule, WalletAuditModule, WalletRetryModule, WalletModule } from '@games-vector/game-core';
+import { JwtTokenWrapperModule } from './modules/jwt/jwt-token-wrapper.module';
 
 import { User, Agents, Bet, WalletAudit, WalletRetryJob } from '@games-vector/game-core';
 import { Game } from './entities/game.entity';
@@ -19,6 +19,8 @@ import { WalletConfigModule } from './modules/wallet-config/wallet-config.module
 import { AppController } from './app.controller';
 import { RedisModule } from './modules/redis/redis.module';
 import { GameModule } from './modules/games/game.module';
+import { GameConfigModule } from './modules/game-config/game-config.module';
+import { GameConfigService } from './modules/game-config/game-config.service';
 import { GamesModule } from './games/games.module';
 import { CommonGameGateway } from './gateway/common-game.gateway';
 import { SugarDaddyGameModule } from './games/sugar-daddy-game/sugar-daddy-game.module';
@@ -33,7 +35,7 @@ import { RefundSchedulerModule } from './modules/refund-scheduler/refund-schedul
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env'],
-      load: [appConfig, databaseConfig, redisConfig, jwtConfig],
+      load: [appConfig, databaseConfig, redisConfig],
     }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
@@ -93,13 +95,56 @@ import { RefundSchedulerModule } from './modules/refund-scheduler/refund-schedul
     forwardRef(() => WalletConfigModule),
     forwardRef(() => WalletAuditModule),
     forwardRef(() => WalletRetryModule),
-    JwtTokenModule.forRoot({
-      secret: process.env.JWT_SECRET || DEFAULTS.JWT.DEFAULT_SECRET,
-      expiresIn: '24h',
-      genericExpiresIn: '1h',
+    // JWT configuration - loaded from game config table (platform config)
+    // Falls back to environment variable, then to defaults
+    // To configure: INSERT INTO game_config_platform (`key`, `value`) VALUES ('jwt.expiresIn', '24h');
+    JwtTokenWrapperModule.forRootAsync({
+      imports: [GameConfigModule],
+      inject: [ConfigService, GameConfigService],
+      useFactory: async (configService: ConfigService, gameConfigService: GameConfigService) => {
+        // Get JWT secret from environment variable (fallback to default)
+        const secret = configService.get<string>('JWT_SECRET') || process.env.JWT_SECRET || DEFAULTS.JWT.DEFAULT_SECRET;
+        
+        // Get JWT expiration from game config table (platform config)
+        // Falls back to environment variable, then to default
+        let expiresIn: string;
+        try {
+          const configValue = await gameConfigService.getConfig('platform', 'jwt.expiresIn');
+          expiresIn = configValue || process.env.JWT_EXPIRES || process.env.JWT_EXPIRES_IN || DEFAULTS.JWT.DEFAULT_EXPIRES_IN;
+          if (configValue) {
+            Logger.log(`JWT expiresIn loaded from game config table: ${configValue}`);
+          }
+        } catch (error) {
+          expiresIn = process.env.JWT_EXPIRES || process.env.JWT_EXPIRES_IN || DEFAULTS.JWT.DEFAULT_EXPIRES_IN;
+          Logger.debug(`JWT expiresIn using fallback: ${expiresIn} (error: ${(error as Error).message})`);
+        }
+
+        // Get JWT generic expiration from game config table (platform config)
+        // Falls back to default
+        let genericExpiresIn: string;
+        try {
+          const configValue = await gameConfigService.getConfig('platform', 'jwt.genericExpiresIn');
+          genericExpiresIn = configValue || '1h';
+          if (configValue) {
+            Logger.log(`JWT genericExpiresIn loaded from game config table: ${configValue}`);
+          }
+        } catch (error) {
+          genericExpiresIn = '1h';
+          Logger.debug(`JWT genericExpiresIn using fallback: ${genericExpiresIn} (error: ${(error as Error).message})`);
+        }
+
+        Logger.log(`JWT Configuration initialized - expiresIn: ${expiresIn}, genericExpiresIn: ${genericExpiresIn}`);
+
+        return {
+          secret,
+          expiresIn,
+          genericExpiresIn,
+        };
+      },
     }),
     RedisModule,
     GameModule,
+    GameConfigModule,
     // Common Schedulers
     BetCleanupSchedulerModule, // Monthly bet cleanup
     RefundSchedulerModule, // Refunds old PLACED bets

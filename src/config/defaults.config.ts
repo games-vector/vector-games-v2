@@ -98,7 +98,7 @@ const PLATFORM_CONFIG = {
 // ============================================================================
 
 const GAMES_CONFIG = {
-  // Sugar Daddy Game (formerly Aviator)
+  // Sugar Daddy Game
   SUGAR_DADDY: {
     // Game Identity
     GAME_CODE: 'sugar-daddy',
@@ -307,7 +307,7 @@ export const DEFAULTS = {
   ERROR_MESSAGES: PLATFORM_CONFIG.ERROR_MESSAGES,
 
   // Game-specific aliases (for backward compatibility)
-  AVIATOR: GAMES_CONFIG.SUGAR_DADDY, // Sugar Daddy (renamed from Aviator)
+  SUGAR_DADDY: GAMES_CONFIG.SUGAR_DADDY,
   CHICKEN_ROAD: GAMES_CONFIG.CHICKEN_ROAD,
 
   // Legacy aliases (for Chicken Road - will be deprecated)
