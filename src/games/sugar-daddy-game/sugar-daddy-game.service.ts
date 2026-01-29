@@ -598,6 +598,12 @@ export class SugarDaddyGameService {
     }
 
     try {
+      // Save the current status before any reloads to preserve FINISH_GAME state
+      const currentStatus = this.activeRound.status;
+      this.logger.debug(
+        `[COEFF_HISTORY] Saving status before reload: status=${currentStatus} roundId=${this.activeRound.roundId}`,
+      );
+      
       // Reload from Redis to ensure we have latest clientsSeeds
       await this.loadActiveRoundFromRedis();
       
@@ -605,6 +611,14 @@ export class SugarDaddyGameService {
         this.logger.error(`[COEFF_HISTORY] Active round is null after reload`);
         return;
       }
+      
+      // Restore the status that was set before reload (FINISH_GAME)
+      // This is critical because loadActiveRoundFromRedis() loads the old state from Redis
+      const reloadedStatus = this.activeRound.status;
+      this.activeRound.status = currentStatus;
+      this.logger.debug(
+        `[COEFF_HISTORY] Restored status after reload: was=${reloadedStatus} restored=${currentStatus} roundId=${this.activeRound.roundId}`,
+      );
 
       // Get top 3 clientsSeeds (first 3 available, no sorting)
       const topClientsSeeds = this.getTopClientsSeeds(3);
