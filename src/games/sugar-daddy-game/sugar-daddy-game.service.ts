@@ -1,8 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
+import * as crypto from 'crypto';
 import { GameStatus, GameStateChangePayload, CoefficientChangePayload, BetData, CoefficientHistory, PendingBet } from './DTO/game-state.dto';
 import { RedisService } from '../../modules/redis/redis.service';
 import { DEFAULTS } from '../../config/defaults.config';
+import { GAME_CONSTANTS } from '../../common/game-constants';
 
 import { GameConfigService } from '../../modules/game-config/game-config.service';
 
@@ -32,21 +34,21 @@ export class SugarDaddyGameService {
   private activeRound: ActiveRound | null = null;
   private previousRoundBets: BetData[] = [];
   private roundCounter = 0;
-  private readonly ROUND_DURATION_MS = 10000;
-  private readonly COEFF_UPDATE_INTERVAL_MS = 200;
-  private readonly MIN_COEFF = 1.00;
-  private readonly MAX_COEFF = 1000.00;
-  private readonly COEFF_INCREMENT = 0.05;
-  private readonly REDIS_KEY_PENDING_BETS = 'sugar-daddy:pending_bets';
-  private readonly PENDING_BET_TTL = 300;
-  private readonly REDIS_KEY_COEFFICIENT_HISTORY = 'sugar-daddy:coefficient_history';
-  private readonly REDIS_KEY_CURRENT_STATE = 'sugar-daddy:current_state';
-  private readonly REDIS_KEY_CURRENT_COEFF = 'sugar-daddy:current_coeff';
-  private readonly REDIS_KEY_ACTIVE_ROUND = 'sugar-daddy:active_round';
-  private readonly REDIS_KEY_PREVIOUS_BETS = 'sugar-daddy:previous_bets';
-  private readonly REDIS_KEY_LEADER_LOCK = 'sugar-daddy:engine_lock';
-  private readonly COEFFICIENT_HISTORY_LIMIT = 50;
-  private readonly LEADER_LOCK_TTL = 30;
+  private readonly ROUND_DURATION_MS = GAME_CONSTANTS.SUGAR_DADDY.ROUND_DURATION_MS;
+  private readonly COEFF_UPDATE_INTERVAL_MS = GAME_CONSTANTS.SUGAR_DADDY.COEFF_UPDATE_INTERVAL_MS;
+  private readonly MIN_COEFF = GAME_CONSTANTS.SUGAR_DADDY.MIN_COEFF;
+  private readonly MAX_COEFF = GAME_CONSTANTS.SUGAR_DADDY.MAX_COEFF;
+  private readonly COEFF_INCREMENT = GAME_CONSTANTS.SUGAR_DADDY.COEFF_INCREMENT;
+  private readonly REDIS_KEY_PENDING_BETS = GAME_CONSTANTS.REDIS_KEYS.SUGAR_DADDY_PENDING_BETS;
+  private readonly PENDING_BET_TTL = GAME_CONSTANTS.SUGAR_DADDY.PENDING_BET_TTL;
+  private readonly REDIS_KEY_COEFFICIENT_HISTORY = GAME_CONSTANTS.REDIS_KEYS.SUGAR_DADDY_COEFFICIENT_HISTORY;
+  private readonly REDIS_KEY_CURRENT_STATE = GAME_CONSTANTS.REDIS_KEYS.SUGAR_DADDY_CURRENT_STATE;
+  private readonly REDIS_KEY_CURRENT_COEFF = GAME_CONSTANTS.REDIS_KEYS.SUGAR_DADDY_CURRENT_COEFF;
+  private readonly REDIS_KEY_ACTIVE_ROUND = GAME_CONSTANTS.REDIS_KEYS.SUGAR_DADDY_ACTIVE_ROUND;
+  private readonly REDIS_KEY_PREVIOUS_BETS = GAME_CONSTANTS.REDIS_KEYS.SUGAR_DADDY_PREVIOUS_BETS;
+  private readonly REDIS_KEY_LEADER_LOCK = GAME_CONSTANTS.REDIS_KEYS.SUGAR_DADDY_LEADER_LOCK;
+  private readonly COEFFICIENT_HISTORY_LIMIT = GAME_CONSTANTS.SUGAR_DADDY.COEFFICIENT_HISTORY_LIMIT;
+  private readonly LEADER_LOCK_TTL = GAME_CONSTANTS.SUGAR_DADDY.LEADER_LOCK_TTL;
   private rtp: number | null = null;
 
   constructor(
@@ -129,51 +131,13 @@ export class SugarDaddyGameService {
       return null;
     }
 
-    const actualBets: BetData[] = Array.from(this.activeRound.bets.values())
-      .sort((a, b) => parseFloat(b.betAmount || '0') - parseFloat(a.betAmount || '0')); // Sort by betAmount descending
-    const totalBetsAmount = actualBets.reduce(
-      (sum, bet) => sum + parseFloat(bet.betAmount || '0'),
-      0,
-    );
-
-    const previousBets = await this.getPreviousBetsFromRedis();
-    const previousBetsTotalAmount = previousBets.reduce(
-      (sum, bet) => sum + parseFloat(bet.betAmount || '0'),
-      0,
-    );
-
-    let waitTime: number | null = null;
-    if (this.activeRound.status === GameStatus.WAIT_GAME) {
-      const elapsed = Date.now() - this.activeRound.startTime;
-      const waitDuration = 10000;
-      waitTime = Math.max(0, waitDuration - elapsed);
-    }
-
-    const payload: GameStateChangePayload = {
-      status: this.activeRound.status,
-      roundId: this.activeRound.roundId,
-      waitTime,
-      bets: {
-        totalBetsAmount,
-        values: actualBets,
-      },
-      previousBets: {
-        totalBetsAmount: previousBetsTotalAmount,
-        values: previousBets,
-      },
-    };
-
-    if (this.activeRound.status === GameStatus.FINISH_GAME && this.activeRound.crashCoeff) {
-      payload.coeffCrash = this.activeRound.crashCoeff;
-      payload.coefficients = await this.getCoefficientsHistory(50);
-      this.logger.log(
-        `[GET_CURRENT_GAME_STATE] FINISH_GAME state: roundId=${payload.roundId} crashCoeff=${payload.coeffCrash} coefficientsCount=${payload.coefficients?.length || 0}`,
+    const payload = await this.buildGameStatePayload();
+    
+    if (payload) {
+      this.logger.debug(
+        `[GET_CURRENT_GAME_STATE] Returning state: status=${payload.status} roundId=${payload.roundId} betsCount=${payload.bets.values.length}`,
       );
     }
-
-    this.logger.debug(
-      `[GET_CURRENT_GAME_STATE] Returning state: status=${payload.status} roundId=${payload.roundId} betsCount=${actualBets.length}`,
-    );
 
     return payload;
   }
@@ -257,8 +221,8 @@ export class SugarDaddyGameService {
 
       if (bet.coeffAuto) {
         const autoCoeff = parseFloat(bet.coeffAuto);
-        const roundedCurrentCoeff = Math.round(currentCoeff * 100) / 100;
-        const roundedAutoCoeff = Math.round(autoCoeff * 100) / 100;
+        const roundedCurrentCoeff = Math.round(currentCoeff * GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION) / GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION;
+        const roundedAutoCoeff = Math.round(autoCoeff * GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION) / GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION;
         
         if (roundedCurrentCoeff >= roundedAutoCoeff) {
           this.logger.debug(
@@ -374,7 +338,6 @@ export class SugarDaddyGameService {
     );
     
     if (!existingClientSeed) {
-      const crypto = require('crypto');
       const userSeed = crypto.randomBytes(8).toString('hex');
       
       this.activeRound.clientsSeeds.push({
@@ -477,7 +440,6 @@ export class SugarDaddyGameService {
     if (userClientSeed) {
       userSeed = userClientSeed.seed;
     } else {
-      const crypto = require('crypto');
       userSeed = crypto.randomBytes(8).toString('hex');
       
       this.activeRound.clientsSeeds.push({
@@ -492,7 +454,6 @@ export class SugarDaddyGameService {
       this.logger.debug(`[GET_GAME_SEEDS] Generated new client seed for userId=${userId}`);
     }
 
-    const crypto = require('crypto');
     const hashedServerSeed = crypto
       .createHash('sha256')
       .update(this.activeRound.serverSeed)
@@ -518,49 +479,78 @@ export class SugarDaddyGameService {
   }
 
   /**
-   * Calculate crash coefficient based on RTP (Return to Player)
+   * Calculate crash coefficient using weighted probability distribution
    * 
-   * RTP controls the distribution of crash coefficients:
-   * - Lower RTP (90%) = more frequent crashes at lower coefficients (higher house edge)
-   * - Higher RTP (97%) = less frequent crashes at lower coefficients (lower house edge)
+   * Uses industry-standard distribution:
+   * - 75% of rounds crash in low range (1.02x - 3.0x)
+   * - 20% of rounds crash in medium range (3.0x - 5.0x)
+   * - 5% of rounds crash in high range (5.0x - 10.0x+)
    * 
-   * The exponent in the power function controls the distribution curve:
-   * - Lower exponent (0.3) = bias toward lower coefficients = lower RTP
-   * - Higher exponent (0.65) = bias toward higher coefficients = higher RTP
+   * Distribution is configurable via database (coefficientDistribution key)
+   * Falls back to defaults if not configured
    * 
-   * Formula: exponent = 0.3 + (RTP - 90) * 0.045
-   * This maps RTP 90-99% to exponent 0.3-0.705
+   * Uses cryptographically secure random number generation for fairness
    */
   private async calculateCrashCoefficient(serverSeed: string): Promise<number> {
-    const min = 1.00;
-    const max = 10.00;
-    const random = Math.random();
+    // Load distribution config from database or use defaults
+    const distribution = await this.loadDistributionConfig('sugar-daddy');
+    
+    // Generate cryptographically secure random number [0, 1)
+    const randomBytes = crypto.randomBytes(8);
+    const randomValue = randomBytes.readUInt32BE(0) / (0xFFFFFFFF + 1);
 
-    const rtp = this.rtp || DEFAULTS.GAMES.SUGAR_DADDY.RTP;
+    // Select range based on cumulative weights
+    let cumulativeWeight = 0;
+    let selectedRange = distribution.ranges[0]; // Default to first range
+    
+    for (const range of distribution.ranges) {
+      cumulativeWeight += range.weight;
+      if (randomValue < cumulativeWeight) {
+        selectedRange = range;
+        break;
+      }
+    }
 
-    const rtpExponent = 0.3 + (rtp - 90) * 0.045;
-    const exponent = Math.max(0.2, Math.min(0.8, rtpExponent));
+    // Generate coefficient within selected range
+    // Use additional random bytes for range selection to ensure independence
+    const rangeRandomBytes = crypto.randomBytes(8);
+    const rangeRandom = rangeRandomBytes.readUInt32BE(0) / (0xFFFFFFFF + 1);
+    
+    let coeff: number;
+    if (distribution.distributionType === 'power') {
+      // Power distribution within range (biased toward lower end)
+      const rangeSize = selectedRange.max - selectedRange.min;
+      const powerExponent = 0.5; // Adjust for bias (0.5 = moderate bias toward lower)
+      const normalizedRandom = Math.pow(rangeRandom, powerExponent);
+      coeff = selectedRange.min + rangeSize * normalizedRandom;
+    } else {
+      // Uniform distribution within range (default)
+      const rangeSize = selectedRange.max - selectedRange.min;
+      coeff = selectedRange.min + rangeSize * rangeRandom;
+    }
 
-    const coeff = min + (max - min) * Math.pow(random, exponent);
+    // Ensure coefficient is within bounds
+    coeff = Math.max(selectedRange.min, Math.min(selectedRange.max, coeff));
 
     this.logger.debug(
-      `[RTP] Calculated crash coefficient: coeff=${coeff.toFixed(2)} RTP=${rtp}% exponent=${exponent.toFixed(3)}`,
+      `[COEFF_DIST] Calculated crash coefficient: coeff=${coeff.toFixed(GAME_CONSTANTS.COEFFICIENT.DECIMAL_PLACES)} range=${selectedRange.name} (${selectedRange.min}-${selectedRange.max}x)`,
     );
 
-    return parseFloat(coeff.toFixed(2));
+    return parseFloat(coeff.toFixed(GAME_CONSTANTS.COEFFICIENT.DECIMAL_PLACES));
   }
 
+  /**
+   * Generate cryptographically secure server seed for provably fair gaming
+   */
   private generateServerSeed(): string {
-    return Array.from({ length: 64 }, () =>
-      Math.floor(Math.random() * 16).toString(16),
-    ).join('');
+    return crypto.randomBytes(32).toString('hex');
   }
 
   /**
    * Get coefficient history from Redis
-   * Returns last N finished rounds (default 50)
+   * Returns last N finished rounds (default from constants)
    */
-  async getCoefficientsHistory(limit: number = 50): Promise<CoefficientHistory[]> {
+  async getCoefficientsHistory(limit: number = this.COEFFICIENT_HISTORY_LIMIT): Promise<CoefficientHistory[]> {
     try {
       const redisClient = this.redisService.getClient();
       const historyKey = this.REDIS_KEY_COEFFICIENT_HISTORY;
@@ -632,7 +622,6 @@ export class SugarDaddyGameService {
 
       // For hash calculation, use all clientsSeeds (not just top 3) to maintain fairness
       if (!combinedHash || !decimal) {
-        const crypto = require('crypto');
         const seedString = this.activeRound.serverSeed +
           this.activeRound.clientsSeeds.map(c => c.seed).join('');
         combinedHash = crypto.createHash('sha256').update(seedString).digest('hex');
@@ -701,7 +690,6 @@ export class SugarDaddyGameService {
     // Fallback: try to get from bets if clientsSeeds is empty
     if (this.activeRound.bets && this.activeRound.bets.size > 0) {
       const clientsSeedsMap = new Map<string, { userId: string; seed: string; nickname: string; gameAvatar: number | null }>();
-      const crypto = require('crypto');
       
       for (const bet of this.activeRound.bets.values()) {
         if (!clientsSeedsMap.has(bet.userId) && clientsSeedsMap.size < limit) {
@@ -858,6 +846,7 @@ export class SugarDaddyGameService {
   /**
    * Save active round to Redis for multi-pod access
    * Made public so bet service can save after bet cancellation
+   * @throws Error if Redis operation fails critically
    */
   async saveActiveRoundToRedis(): Promise<void> {
     if (!this.activeRound) {
@@ -890,13 +879,21 @@ export class SugarDaddyGameService {
       if (gameState) {
         await redisClient.set(this.REDIS_KEY_CURRENT_STATE, JSON.stringify(gameState));
       }
-    } catch (error) {
-      this.logger.error(`[REDIS_SAVE] Error saving active round: ${error.message}`);
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Unknown error';
+      const errorStack = error?.stack || '';
+      this.logger.error(
+        `[REDIS_SAVE] Error saving active round: ${errorMessage}. RoundId: ${this.activeRound?.roundId}`,
+        errorStack,
+      );
+      // Don't throw - allow game to continue with in-memory state
+      // Redis failures should not crash the game, but should be monitored
     }
   }
 
   /**
    * Load active round from Redis
+   * On failure, keeps existing in-memory state if available
    */
   private async loadActiveRoundFromRedis(): Promise<void> {
     try {
@@ -904,6 +901,12 @@ export class SugarDaddyGameService {
       const roundDataStr = await redisClient.get(this.REDIS_KEY_ACTIVE_ROUND);
 
       if (!roundDataStr) {
+        // No round in Redis - this is normal if no round has started yet
+        if (this.activeRound) {
+          this.logger.warn(
+            `[REDIS_LOAD] No round data in Redis but in-memory round exists. RoundId: ${this.activeRound.roundId}`,
+          );
+        }
         this.activeRound = null;
         return;
       }
@@ -942,9 +945,18 @@ export class SugarDaddyGameService {
         decimal: roundData.decimal || '',
         isRunning: roundData.isRunning || false,
       };
-    } catch (error) {
-      this.logger.error(`[REDIS_LOAD] Error loading active round: ${error.message}`);
-      this.activeRound = null;
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Unknown error';
+      const errorStack = error?.stack || '';
+      this.logger.error(
+        `[REDIS_LOAD] Error loading active round: ${errorMessage}. Keeping existing in-memory state if available.`,
+        errorStack,
+      );
+      // Don't clear activeRound on error - keep in-memory state as fallback
+      // Only clear if we're sure there's no round
+      if (!this.activeRound) {
+        this.activeRound = null;
+      }
     }
   }
 
@@ -962,8 +974,12 @@ export class SugarDaddyGameService {
         coeff: this.activeRound.currentCoeff,
       };
       await redisClient.set(this.REDIS_KEY_CURRENT_COEFF, JSON.stringify(coeffPayload));
-    } catch (error) {
-      this.logger.error(`[REDIS_SAVE] Error saving current coefficient: ${error.message}`);
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Unknown error';
+      this.logger.error(
+        `[REDIS_SAVE] Error saving current coefficient: ${errorMessage}. Coefficient: ${this.activeRound.currentCoeff}`,
+      );
+      // Don't throw - coefficient updates are frequent and failures shouldn't crash the game
     }
   }
 
@@ -974,8 +990,12 @@ export class SugarDaddyGameService {
     try {
       const redisClient = this.redisService.getClient();
       await redisClient.set(this.REDIS_KEY_PREVIOUS_BETS, JSON.stringify(bets));
-    } catch (error) {
-      this.logger.error(`[REDIS_SAVE] Error saving previous bets: ${error.message}`);
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Unknown error';
+      this.logger.error(
+        `[REDIS_SAVE] Error saving previous bets: ${errorMessage}. Bet count: ${bets.length}`,
+      );
+      // Don't throw - previous bets are not critical for game operation
     }
   }
 
@@ -990,14 +1010,18 @@ export class SugarDaddyGameService {
         return [];
       }
       return JSON.parse(betsStr) as BetData[];
-    } catch (error) {
-      this.logger.error(`[REDIS_LOAD] Error loading previous bets: ${error.message}`);
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Unknown error';
+      this.logger.error(
+        `[REDIS_LOAD] Error loading previous bets: ${errorMessage}. Returning empty array.`,
+      );
       return [];
     }
   }
 
   /**
-   * Build game state payload (helper for Redis storage)
+   * Build game state payload (helper for Redis storage and getCurrentGameState)
+   * Centralized logic to avoid code duplication
    */
   private async buildGameStatePayload(): Promise<GameStateChangePayload | null> {
     if (!this.activeRound) {
@@ -1020,7 +1044,7 @@ export class SugarDaddyGameService {
     let waitTime: number | null = null;
     if (this.activeRound.status === GameStatus.WAIT_GAME) {
       const elapsed = Date.now() - this.activeRound.startTime;
-      const waitDuration = 10000;
+      const waitDuration = GAME_CONSTANTS.SUGAR_DADDY.WAIT_DURATION_MS;
       waitTime = Math.max(0, waitDuration - elapsed);
     }
 
@@ -1040,7 +1064,7 @@ export class SugarDaddyGameService {
 
     if (this.activeRound.status === GameStatus.FINISH_GAME && this.activeRound.crashCoeff) {
       payload.coeffCrash = this.activeRound.crashCoeff;
-      payload.coefficients = await this.getCoefficientsHistory(50);
+      payload.coefficients = await this.getCoefficientsHistory(this.COEFFICIENT_HISTORY_LIMIT);
     }
 
     return payload;
@@ -1184,13 +1208,82 @@ export class SugarDaddyGameService {
   }
 
   /**
-   * Load RTP from database and cache it
+   * Load RTP from database first, then fallback to defaults
    * Call this when game starts or when config might have changed
    */
   async loadRTP(gameCode: string): Promise<number> {
-    const config = await this.getGameConfigPayload(gameCode);
-    this.rtp = config.rtp;
-    this.logger.log(`[loadRTP] Loaded RTP=${this.rtp}% for gameCode=${gameCode}`);
+    try {
+      // Try to fetch RTP from database first
+      const rtpRaw = await this.gameConfigService.getConfig(gameCode, 'RTP');
+      
+      if (rtpRaw && rtpRaw !== '{}') {
+        const rtp = parseFloat(rtpRaw);
+        if (!isNaN(rtp) && rtp >= 0 && rtp <= 100) {
+          this.rtp = rtp;
+          this.logger.log(`[loadRTP] Loaded RTP=${this.rtp}% from database for gameCode=${gameCode}`);
+          return this.rtp;
+        } else {
+          this.logger.warn(`[loadRTP] Invalid RTP value in database: ${rtpRaw}, using default`);
+        }
+      }
+    } catch (error: any) {
+      this.logger.warn(`[loadRTP] Failed to load RTP from database: ${error.message}, using default`);
+    }
+    
+    // Fallback to default
+    this.rtp = DEFAULTS.GAMES.SUGAR_DADDY.RTP;
+    this.logger.log(`[loadRTP] Using default RTP=${this.rtp}% for gameCode=${gameCode}`);
     return this.rtp;
+  }
+
+  /**
+   * Load coefficient distribution config from database or use defaults
+   * @param gameCode - Game code
+   * @returns Distribution configuration object
+   */
+  private async loadDistributionConfig(gameCode: string): Promise<{
+    ranges: Array<{ name: string; min: number; max: number; weight: number }>;
+    distributionType: 'uniform' | 'power';
+  }> {
+    try {
+      const configRaw = await this.gameConfigService.getConfig(gameCode, 'coefficientDistribution');
+      
+      if (configRaw && configRaw !== '{}') {
+        const config = this.tryParseJson(configRaw);
+        
+        if (config && config.ranges && Array.isArray(config.ranges)) {
+          // Validate ranges
+          const totalWeight = config.ranges.reduce((sum: number, r: any) => sum + (r.weight || 0), 0);
+          if (Math.abs(totalWeight - 1.0) < 0.01) { // Allow small floating point errors
+            this.logger.debug(`[loadDistributionConfig] Loaded distribution from database for ${gameCode}`);
+            return {
+              ranges: config.ranges,
+              distributionType: config.distributionType || 'uniform',
+            };
+          } else {
+            this.logger.warn(
+              `[loadDistributionConfig] Distribution weights don't sum to 1.0 (sum=${totalWeight}), using defaults`,
+            );
+          }
+        } else {
+          this.logger.warn(`[loadDistributionConfig] Invalid distribution config format, using defaults`);
+        }
+      }
+    } catch (error: any) {
+      this.logger.warn(
+        `[loadDistributionConfig] Failed to load distribution from database: ${error.message}, using defaults`,
+      );
+    }
+    
+    // Fallback to defaults (create mutable copy)
+    return {
+      ranges: GAME_CONSTANTS.SUGAR_DADDY.DEFAULT_DISTRIBUTION.ranges.map(r => ({
+        name: r.name,
+        min: r.min,
+        max: r.max,
+        weight: r.weight,
+      })),
+      distributionType: GAME_CONSTANTS.SUGAR_DADDY.DEFAULT_DISTRIBUTION.distributionType,
+    };
   }
 }
