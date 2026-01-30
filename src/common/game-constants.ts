@@ -34,6 +34,35 @@ export const GAME_CONSTANTS = {
     },
   },
 
+  // Diver Game Constants
+  DIVER: {
+    ROUND_DURATION_MS: 10000,
+    COEFF_UPDATE_INTERVAL_MS: 200,
+    MIN_COEFF: 1.00,
+    MAX_COEFF: 1000.00,
+    COEFF_INCREMENT: 0.05,
+    PENDING_BET_TTL: 300,
+    COEFFICIENT_HISTORY_LIMIT: 50,
+    LEADER_LOCK_TTL: 30,
+    WAIT_DURATION_MS: 10000,
+    RTP_EXPONENT_MIN: 0.2,
+    RTP_EXPONENT_MAX: 0.8,
+    RTP_BASE_EXPONENT: 0.3,
+    RTP_MULTIPLIER: 0.045,
+    RTP_BASE: 90,
+    CRASH_COEFF_MIN: 1.00,
+    CRASH_COEFF_MAX: 10.00,
+    COEFF_SPEED_PER_SECOND: 0.5,
+    DEFAULT_DISTRIBUTION: {
+      ranges: [
+        { name: 'low', min: 1.02, max: 3.0, weight: 0.75 },
+        { name: 'medium', min: 3.0, max: 5.0, weight: 0.20 },
+        { name: 'high', min: 5.0, max: 10.0, weight: 0.05 },
+      ],
+      distributionType: 'uniform',
+    },
+  },
+
   // Redis Key Prefixes
   REDIS_KEYS: {
     SUGAR_DADDY_PENDING_BETS: 'sugar-daddy:pending_bets',

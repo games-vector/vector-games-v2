@@ -146,6 +146,44 @@ const GAMES_CONFIG = {
     },
   },
 
+  // Diver Game
+  DIVER: {
+    GAME_CODE: 'diver',
+    GAME_NAME: 'Diver',
+    PLATFORM: 'In-out',
+    GAME_TYPE: 'CRASH',
+    
+    RTP: 92,
+    
+    BET_CONFIG: {
+      minBetAmount: '0.01',
+      maxBetAmount: '200.00',
+      maxWinAmount: '20000.00',
+      defaultBetAmount: '1.00',
+      betPresets: ['0.5', '1', '2', '7', '10', '20'],
+      decimalPlaces: '2',
+      currency: 'INR',
+    },
+    
+    BET_RANGES: {
+      INR: ['0.01', '200.00'],
+    },
+    
+    DEFAULT_CURRENCY: 'INR',
+
+    GAME_PAYLOADS: {
+      GAME_TYPE: 'CRASH',
+      PLATFORM: 'In-out',
+      SETTLE_TYPE: 'platformTxId',
+    },
+
+    FRONTEND: {
+      DEFAULT_HOST: 'gscr.diver.live',
+    },
+
+    ERROR_MESSAGES: {},
+  },
+
   // Chicken Road Game
   CHICKEN_ROAD: {
     // Game Identity
@@ -308,6 +346,7 @@ export const DEFAULTS = {
 
   // Game-specific aliases (for backward compatibility)
   SUGAR_DADDY: GAMES_CONFIG.SUGAR_DADDY,
+  DIVER: GAMES_CONFIG.DIVER,
   CHICKEN_ROAD: GAMES_CONFIG.CHICKEN_ROAD,
 
   // Legacy aliases (for Chicken Road - will be deprecated)
@@ -326,4 +365,5 @@ export const DEFAULTS = {
 export type PlatformConfig = typeof PLATFORM_CONFIG;
 export type GamesConfig = typeof GAMES_CONFIG;
 export type SugarDaddyConfig = typeof GAMES_CONFIG.SUGAR_DADDY;
+export type DiverConfig = typeof GAMES_CONFIG.DIVER;
 export type ChickenRoadConfig = typeof GAMES_CONFIG.CHICKEN_ROAD;

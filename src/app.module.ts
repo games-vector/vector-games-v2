@@ -24,6 +24,7 @@ import { GameConfigService } from './modules/game-config/game-config.service';
 import { GamesModule } from './games/games.module';
 import { CommonGameGateway } from './gateway/common-game.gateway';
 import { SugarDaddyGameModule } from './games/sugar-daddy-game/sugar-daddy-game.module';
+import { DiverGameModule } from './games/diver-game/diver-game.module';
 import { ChickenRoadGameModule } from './games/chicken-road-game/chicken-road-game.module';
 import { CommonApiFunctionsModule } from './routes/common-api-functions/common-api-functions.module';
 import { GameApiRoutesModule } from './routes/game-api-routes/game-api-routes.module';
@@ -152,6 +153,7 @@ import { RefundSchedulerModule } from './modules/refund-scheduler/refund-schedul
     // Common Game Gateway - handles all WebSocket connections
     // Game Modules - register their handlers with dispatcher
     SugarDaddyGameModule, // Depends on GamesModule (GameDispatcherService)
+    DiverGameModule, // Depends on GamesModule (GameDispatcherService)
     ChickenRoadGameModule, // Depends on GamesModule (GameDispatcherService)
     // API Routes
     CommonApiFunctionsModule, // /wallet/* endpoints (createMember, login, doLoginAndLaunchGame, logout)
