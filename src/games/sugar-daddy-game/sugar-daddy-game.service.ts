@@ -1094,16 +1094,18 @@ export class SugarDaddyGameService {
       );
 
       if (result === 'OK') {
-        this.logger.log(`[LEADER_ELECTION] Pod ${podId} acquired leader lock`);
+        this.logger.log(`[LEADER_ELECTION] ✅ Pod ${podId} acquired leader lock`);
         return true;
       }
 
       const currentLeader = await redisClient.get(lockKey);
       if (currentLeader === podId) {
+        this.logger.log(`[LEADER_ELECTION] ✅ Pod ${podId} already holds leader lock (renewing)`);
         await redisClient.expire(lockKey, this.LEADER_LOCK_TTL);
         return true;
       }
 
+      this.logger.debug(`[LEADER_ELECTION] ❌ Pod ${podId} failed to acquire lock - current leader: ${currentLeader || 'unknown'}`);
       return false;
     } catch (error) {
       this.logger.error(`[LEADER_ELECTION] Error acquiring lock: ${error.message}`);

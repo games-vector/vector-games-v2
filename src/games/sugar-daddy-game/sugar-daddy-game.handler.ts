@@ -778,63 +778,82 @@ export class SugarDaddyGameHandler implements IGameHandler {
   }
 
   startCoefficientBroadcast(gameCode: string | null = null): void {
-    if (this.coefficientUpdateInterval) {
-      this.stopCoefficientBroadcast();
-    }
-
-    this.coefficientUpdateInterval = setInterval(async () => {
-      const activeRound = await this.sugarDaddyGameService.getActiveRound();
-
-      if (activeRound && activeRound.status === GameStatus.IN_GAME && activeRound.isRunning) {
-        const updated = await this.sugarDaddyGameService.updateCoefficient();
-
-        const coeff = await this.sugarDaddyGameService.getCurrentCoefficient();
-        if (coeff) {
-          this.broadcastCoefficientUpdate(gameCode, coeff);
-        }
-
-        const autoCashoutBets = await this.sugarDaddyGameService.getAutoCashoutBets();
-        if (autoCashoutBets.length > 0) {
-          for (const { playerGameId, bet } of autoCashoutBets) {
-            this.processAutoCashout(playerGameId, bet, gameCode).catch((error) => {
-              this.logger.error(
-                `[AUTO_CASHOUT_ERROR] Failed to process auto-cashout for playerGameId=${playerGameId}: ${error.message}`,
-              );
-            });
-          }
-        }
-
-        if (!updated) {
-          this.logger.log(
-            `[COEFF_BROADCAST] Coefficient update returned false, round ended. Stopping broadcast and transitioning to FINISH_GAME`,
-          );
-          this.stopCoefficientBroadcast();
-          
-          // Get and broadcast FINISH_GAME state immediately
-          const gameState = await this.sugarDaddyGameService.getCurrentGameState();
-          if (gameState) {
-            this.logger.log(
-              `[COEFF_BROADCAST] Round ended, preparing to broadcast FINISH_GAME state: roundId=${gameState.roundId} status=${gameState.status} crashCoeff=${gameState.coeffCrash || 'N/A'} betsCount=${gameState.bets.values.length} hasCoefficients=${!!gameState.coefficients}`,
-            );
-            this.broadcastGameStateChange(gameCode, gameState);
-            this.logger.log(
-              `[COEFF_BROADCAST] ✅ FINISH_GAME state broadcasted via coefficient broadcast`,
-            );
-          } else {
-            this.logger.error(
-              `[COEFF_BROADCAST] ❌ Failed to get game state after round ended`,
-            );
-          }
-          
-          if (this.onRoundEndCallback) {
-            this.logger.log(`[COEFF_BROADCAST] Calling onRoundEndCallback`);
-            this.onRoundEndCallback();
-          }
-        }
-      } else {
+    try {
+      if (this.coefficientUpdateInterval) {
         this.stopCoefficientBroadcast();
       }
-    }, 200);
+
+      this.logger.log(`[COEFF_BROADCAST] Starting coefficient broadcast for gameCode=${gameCode || 'sugar-daddy'}`);
+      this.coefficientUpdateInterval = setInterval(async () => {
+        try {
+          const activeRound = await this.sugarDaddyGameService.getActiveRound();
+
+          if (activeRound && activeRound.status === GameStatus.IN_GAME && activeRound.isRunning) {
+            const updated = await this.sugarDaddyGameService.updateCoefficient();
+
+            const coeff = await this.sugarDaddyGameService.getCurrentCoefficient();
+            if (coeff) {
+              this.broadcastCoefficientUpdate(gameCode, coeff);
+            }
+
+            const autoCashoutBets = await this.sugarDaddyGameService.getAutoCashoutBets();
+            if (autoCashoutBets.length > 0) {
+              for (const { playerGameId, bet } of autoCashoutBets) {
+                this.processAutoCashout(playerGameId, bet, gameCode).catch((error) => {
+                  const errorMessage = error instanceof Error ? error.message : String(error);
+                  this.logger.error(
+                    `[AUTO_CASHOUT_ERROR] Failed to process auto-cashout for playerGameId=${playerGameId}: ${errorMessage}`,
+                  );
+                });
+              }
+            }
+
+            if (!updated) {
+              this.logger.log(
+                `[COEFF_BROADCAST] Coefficient update returned false, round ended. Stopping broadcast and transitioning to FINISH_GAME`,
+              );
+              this.stopCoefficientBroadcast();
+              
+              // Get and broadcast FINISH_GAME state immediately
+              const gameState = await this.sugarDaddyGameService.getCurrentGameState();
+              if (gameState) {
+                this.logger.log(
+                  `[COEFF_BROADCAST] Round ended, preparing to broadcast FINISH_GAME state: roundId=${gameState.roundId} status=${gameState.status} crashCoeff=${gameState.coeffCrash || 'N/A'} betsCount=${gameState.bets.values.length} hasCoefficients=${!!gameState.coefficients}`,
+                );
+                this.broadcastGameStateChange(gameCode, gameState);
+                this.logger.log(
+                  `[COEFF_BROADCAST] ✅ FINISH_GAME state broadcasted via coefficient broadcast`,
+                );
+              } else {
+                this.logger.error(
+                  `[COEFF_BROADCAST] ❌ Failed to get game state after round ended`,
+                );
+              }
+              
+              if (this.onRoundEndCallback) {
+                this.logger.log(`[COEFF_BROADCAST] Calling onRoundEndCallback`);
+                this.onRoundEndCallback();
+              }
+            }
+          } else {
+            this.stopCoefficientBroadcast();
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorStack = error instanceof Error ? error.stack : undefined;
+          this.logger.error(
+            `[COEFF_BROADCAST] Error in coefficient broadcast interval: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
+          );
+          // Don't stop the interval on error - let it continue trying
+        }
+      }, 200);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        `[COEFF_BROADCAST] Error starting coefficient broadcast: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
+      );
+    }
   }
 
   stopCoefficientBroadcast(): void {
@@ -845,31 +864,56 @@ export class SugarDaddyGameHandler implements IGameHandler {
   }
 
   startGameStateBroadcast(gameCode: string | null = null): void {
-    if (this.gameStateBroadcastInterval) {
-      this.stopGameStateBroadcast();
+    try {
+      if (this.gameStateBroadcastInterval) {
+        this.stopGameStateBroadcast();
+      }
+
+      this.logger.log(`[GAME_STATE_BROADCAST] Starting game state broadcast for gameCode=${gameCode || 'sugar-daddy'}`);
+      
+      this.sugarDaddyGameService.getCurrentGameState()
+        .then((initialGameState) => {
+          if (initialGameState) {
+            this.logger.log(
+              `[GAME_STATE_BROADCAST] Broadcasting initial game state: status=${initialGameState.status} roundId=${initialGameState.roundId}`,
+            );
+            this.broadcastGameStateChange(gameCode, initialGameState);
+          } else {
+            this.logger.warn(`[GAME_STATE_BROADCAST] No initial game state available`);
+          }
+        })
+        .catch((error) => {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.logger.error(`[GAME_STATE_BROADCAST] Error getting initial game state: ${errorMessage}`);
+        });
+
+      this.logger.log(`[GAME_STATE_BROADCAST] Starting periodic game state broadcast (every 3s) for gameCode=${gameCode || 'sugar-daddy'}`);
+      this.gameStateBroadcastInterval = setInterval(async () => {
+        try {
+          const gameState = await this.sugarDaddyGameService.getCurrentGameState();
+          if (gameState) {
+            this.logger.debug(
+              `[GAME_STATE_BROADCAST] Periodic broadcast: status=${gameState.status} roundId=${gameState.roundId} betsCount=${gameState.bets.values.length}`,
+            );
+            this.broadcastGameStateChange(gameCode, gameState);
+          } else {
+            this.logger.warn(`[GAME_STATE_BROADCAST] No game state available for periodic broadcast`);
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorStack = error instanceof Error ? error.stack : undefined;
+          this.logger.error(
+            `[GAME_STATE_BROADCAST] Error in periodic broadcast: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
+          );
+        }
+      }, 3000);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        `[GAME_STATE_BROADCAST] Error starting game state broadcast: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
+      );
     }
-
-    this.sugarDaddyGameService.getCurrentGameState().then((initialGameState) => {
-      if (initialGameState) {
-        this.logger.log(
-          `[GAME_STATE_BROADCAST] Broadcasting initial game state: status=${initialGameState.status} roundId=${initialGameState.roundId}`,
-        );
-        this.broadcastGameStateChange(gameCode, initialGameState);
-      }
-    });
-
-    this.logger.log(`[GAME_STATE_BROADCAST] Starting periodic game state broadcast (every 3s) for gameCode=${gameCode}`);
-    this.gameStateBroadcastInterval = setInterval(async () => {
-      const gameState = await this.sugarDaddyGameService.getCurrentGameState();
-      if (gameState) {
-        this.logger.debug(
-          `[GAME_STATE_BROADCAST] Periodic broadcast: status=${gameState.status} roundId=${gameState.roundId} betsCount=${gameState.bets.values.length}`,
-        );
-        this.broadcastGameStateChange(gameCode, gameState);
-      } else {
-        this.logger.warn(`[GAME_STATE_BROADCAST] No game state available for periodic broadcast`);
-      }
-    }, 3000);
   }
 
   stopGameStateBroadcast(): void {
