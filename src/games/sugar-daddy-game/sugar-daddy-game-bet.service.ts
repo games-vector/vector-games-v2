@@ -730,6 +730,12 @@ export class SugarDaddyGameBetService {
     serverSeed?: string;
     combinedHash?: string;
     hashedServerSeed?: string;
+    clientsSeeds?: Array<{
+      userId: string;
+      seed: string;
+      nickname: string;
+      gameAvatar: number | null;
+    }>;
   } | null> {
     try {
       // First try to get from activeRound (for current round bets)
@@ -766,12 +772,15 @@ export class SugarDaddyGameBetService {
               ? decimalValue.toExponential() 
               : decimalValue.toString();
 
+            const topClientsSeeds = activeRound.clientsSeeds ? activeRound.clientsSeeds.slice(0, 3) : [];
+
             return {
               decimal,
               clientSeed,
               serverSeed,
               combinedHash,
               hashedServerSeed,
+              clientsSeeds: topClientsSeeds,
             };
           }
         }
@@ -792,13 +801,11 @@ export class SugarDaddyGameBetService {
             const clientSeed = userClientSeed.seed;
             const serverSeed = coeffHistory.serverSeed;
 
-            // Calculate hashedServerSeed
             const hashedServerSeed = crypto
               .createHash('sha256')
               .update(serverSeed)
               .digest('hex');
 
-            // Use combinedHash and decimal from coefficient history if available
             const combinedHash = coeffHistory.combinedHash || crypto
               .createHash('sha256')
               .update(clientSeed + serverSeed)
@@ -816,12 +823,15 @@ export class SugarDaddyGameBetService {
               `[FAIRNESS_DATA] Generated fairness data from coefficient history for userId=${userId} roundId=${roundId}`,
             );
 
+            const clientsSeeds = coeffHistory.clientsSeeds || [];
+
             return {
               decimal,
               clientSeed,
               serverSeed,
               combinedHash,
               hashedServerSeed,
+              clientsSeeds: clientsSeeds,
             };
           } else {
             this.logger.warn(
@@ -861,12 +871,15 @@ export class SugarDaddyGameBetService {
             ? decimalValue.toExponential() 
             : decimalValue.toString();
 
+          const topClientsSeeds = activeRound.clientsSeeds ? activeRound.clientsSeeds.slice(0, 3) : [];
+
           return {
             decimal,
             clientSeed,
             serverSeed,
             combinedHash,
             hashedServerSeed,
+            clientsSeeds: topClientsSeeds,
           };
         }
       }
