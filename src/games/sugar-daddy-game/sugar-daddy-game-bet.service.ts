@@ -1075,12 +1075,11 @@ export class SugarDaddyGameBetService {
         updatedBy: userId,
         withdrawCoeff: cashedOutBet.coeffWin,
         finalCoeff: finalCoeff,
-        fairnessData: fairnessData || undefined,
+        fairnessData: fairnessData ?? undefined,
       });
       
-      // Debug log: Confirm fairnessData was passed to recordSettlement
-      this.logger.debug(
-        `[FAIRNESS_DATA_DEBUG] cashOut: Called recordSettlement with fairnessData=${fairnessData ? 'present' : 'undefined'} for externalPlatformTxId=${externalPlatformTxId}`,
+      this.logger.log(
+        `[CASHOUT] Called recordSettlement for externalPlatformTxId=${externalPlatformTxId} userId=${userId} fairnessData=${fairnessData ? 'present' : 'missing'}`,
       );
 
       const betAmount = parseFloat(cashedOutBet.betAmount);
@@ -1573,6 +1572,15 @@ export class SugarDaddyGameBetService {
     try {
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
       if (!activeRound) {
+        this.logger.warn(`[SETTLE_UNCASHED] No active round found for roundId=${roundId}`);
+        return;
+      }
+
+      // CRITICAL: Verify we're settling bets from the correct round
+      if (activeRound.roundId !== roundId) {
+        this.logger.error(
+          `[SETTLE_UNCASHED] RoundId mismatch: activeRound.roundId=${activeRound.roundId} expected=${roundId}. Cannot settle bets - round may have already finished and new round started.`,
+        );
         return;
       }
 
@@ -1580,6 +1588,10 @@ export class SugarDaddyGameBetService {
       const finalCoeff = crashCoeff.toFixed(2);
       const uncashedBets: Array<{ playerGameId: string; bet: BetData }> = [];
       const cashedOutBets: Array<{ playerGameId: string; bet: BetData }> = [];
+      
+      this.logger.log(
+        `[SETTLE_UNCASHED] Starting settlement for roundId=${roundId} activeRound.roundId=${activeRound.roundId} totalBets=${activeRound.bets.size}`,
+      );
 
       for (const [playerGameId, bet] of activeRound.bets.entries()) {
         // Skip mock bets - they should not be settled via wallet/DB
@@ -1630,6 +1642,10 @@ export class SugarDaddyGameBetService {
         }
       }
 
+      this.logger.log(
+        `[SETTLE_UNCASHED] Found ${uncashedBets.length} uncashed bets and ${cashedOutBets.length} cashed out bets for roundId=${roundId}`,
+      );
+
       if (uncashedBets.length === 0) {
         this.logger.log(`[SETTLE_UNCASHED] No uncashed bets to settle for roundId=${roundId}`);
         return;
@@ -1641,6 +1657,10 @@ export class SugarDaddyGameBetService {
 
       for (const { playerGameId, bet } of uncashedBets) {
         try {
+          this.logger.debug(
+            `[SETTLE_UNCASHED] Processing uncashed bet: playerGameId=${playerGameId} userId=${bet.userId} betAmount=${bet.betAmount}`,
+          );
+          
           const mappingKey = `sugar-daddy:bet:${playerGameId}`;
           const externalPlatformTxId = await this.redisService.get<string>(mappingKey);
 
@@ -1670,19 +1690,42 @@ export class SugarDaddyGameBetService {
           const finalCoeff = crashCoeff.toFixed(2);
 
           // Generate fairness data for the bet - pass roundId to get from coefficient history if needed
-          const fairnessData = await this.generateFairnessDataForBet(bet.userId, roundId);
+          let fairnessData = await this.generateFairnessDataForBet(bet.userId, roundId);
 
-          // Debug log: Verify fairnessData is generated
+          // Fallback: If fairnessData is null, try to get at least serverSeed from coefficient history
           if (!fairnessData) {
             this.logger.warn(
-              `[FAIRNESS_DATA_DEBUG] settleUncashedBets: fairnessData is null/undefined for userId=${bet.userId} playerGameId=${playerGameId}`,
+              `[SETTLE_UNCASHED] fairnessData generation failed for userId=${bet.userId} roundId=${roundId}, attempting fallback`,
             );
+            
+            const coefficientsHistory = await this.sugarDaddyGameService.getCoefficientsHistory(1000);
+            const coeffHistory = coefficientsHistory.find(h => h.gameId === roundId);
+            
+            if (coeffHistory && coeffHistory.serverSeed) {
+              const crypto = require('crypto');
+              fairnessData = {
+                serverSeed: coeffHistory.serverSeed,
+                hashedServerSeed: crypto.createHash('sha256').update(coeffHistory.serverSeed).digest('hex'),
+                combinedHash: coeffHistory.combinedHash || '',
+                decimal: coeffHistory.decimal || '',
+                clientSeed: '', // Will be empty if we can't find user's seed
+                clientsSeeds: coeffHistory.clientsSeeds || [],
+              };
+              this.logger.warn(
+                `[SETTLE_UNCASHED] Generated fallback fairnessData for userId=${bet.userId} roundId=${roundId} (missing clientSeed)`,
+              );
+            } else {
+              this.logger.error(
+                `[SETTLE_UNCASHED] Cannot generate fairnessData for userId=${bet.userId} roundId=${roundId} - no coefficient history found`,
+              );
+            }
           } else {
             this.logger.debug(
-              `[FAIRNESS_DATA_DEBUG] settleUncashedBets: fairnessData generated for userId=${bet.userId} hasServerSeed=${!!fairnessData.serverSeed} hasClientSeed=${!!fairnessData.clientSeed}`,
+              `[SETTLE_UNCASHED] fairnessData generated for userId=${bet.userId} hasServerSeed=${!!fairnessData.serverSeed} hasClientSeed=${!!fairnessData.clientSeed}`,
             );
           }
 
+          // Ensure we never pass null - use ?? to handle null/undefined properly
           await this.betService.recordSettlement({
             externalPlatformTxId,
             winAmount,
@@ -1691,12 +1734,11 @@ export class SugarDaddyGameBetService {
             updatedBy: 'system',
             withdrawCoeff: '0.00',
             finalCoeff,
-            fairnessData: fairnessData || undefined,
+            fairnessData: fairnessData ?? undefined,
           });
           
-          // Debug log: Confirm fairnessData was passed to recordSettlement
-          this.logger.debug(
-            `[FAIRNESS_DATA_DEBUG] settleUncashedBets: Called recordSettlement with fairnessData=${fairnessData ? 'present' : 'undefined'} for externalPlatformTxId=${externalPlatformTxId}`,
+          this.logger.log(
+            `[SETTLE_UNCASHED] Called recordSettlement for externalPlatformTxId=${externalPlatformTxId} userId=${bet.userId} fairnessData=${fairnessData ? 'present' : 'missing'}`,
           );
 
           const betAmount = parseFloat(bet.betAmount);
@@ -1713,7 +1755,7 @@ export class SugarDaddyGameBetService {
           await this.redisService.del(mappingKey);
 
           this.logger.log(
-            `[SETTLE_UNCASHED] ✅ Settled uncashed bet: userId=${bet.userId} playerGameId=${playerGameId} winAmount=0`,
+            `[SETTLE_UNCASHED] ✅ Settled uncashed bet: userId=${bet.userId} playerGameId=${playerGameId} externalPlatformTxId=${externalPlatformTxId} winAmount=0 status=LOST fairnessData=${fairnessData ? 'stored' : 'missing'}`,
           );
         } catch (error: any) {
           this.logger.error(
