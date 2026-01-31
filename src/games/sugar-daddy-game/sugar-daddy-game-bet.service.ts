@@ -1587,10 +1587,16 @@ export class SugarDaddyGameBetService {
           continue;
         }
         
-        if (!bet.coeffWin || !bet.winAmount) {
-          uncashedBets.push({ playerGameId, bet });
-        } else {
+        // Check if bet actually cashed out (winAmount > 0)
+        // After calculateWins() runs, uncashed bets have coeffWin='0.00' and winAmount='0',
+        // so we need to check the numeric value, not just existence
+        const winAmount = parseFloat(bet.winAmount || '0');
+        const coeffWin = parseFloat(bet.coeffWin || '0');
+
+        if (winAmount > 0 && coeffWin > 0) {
           cashedOutBets.push({ playerGameId, bet });
+        } else {
+          uncashedBets.push({ playerGameId, bet });
         }
       }
 
