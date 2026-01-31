@@ -720,7 +720,7 @@ export class SugarDaddyGameHandler implements IGameHandler {
       coeffCrash: gameState?.coeffCrash ?? (currentCoeff?.coeff || null),
     };
 
-    const coefficients = await this.sugarDaddyGameService.getCoefficientsHistory(50);
+    const coefficients = await this.sugarDaddyGameService.getCoefficientsHistory(51);
 
     const payload: OnConnectGamePayload = {
       success: true,
@@ -798,13 +798,42 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
             const autoCashoutBets = await this.sugarDaddyGameService.getAutoCashoutBets();
             if (autoCashoutBets.length > 0) {
-              for (const { playerGameId, bet } of autoCashoutBets) {
-                this.processAutoCashout(playerGameId, bet, gameCode).catch((error) => {
-                  const errorMessage = error instanceof Error ? error.message : String(error);
-                  this.logger.error(
-                    `[AUTO_CASHOUT_ERROR] Failed to process auto-cashout for playerGameId=${playerGameId}: ${errorMessage}`,
-                  );
-                });
+              for (const { playerGameId, bet, isMockBet } of autoCashoutBets) {
+                // Handle mock bets separately (no wallet/database operations)
+                if (isMockBet) {
+                  const activeRound = await this.sugarDaddyGameService.getActiveRound();
+                  if (activeRound) {
+                    const schedule = activeRound.mockBetsCashoutSchedule.get(playerGameId);
+                    if (schedule) {
+                      const coeffWin = schedule.cashoutCoeff;
+                      // Process mock bet cashout (in-memory only)
+                      const mockBet = activeRound.bets.get(playerGameId);
+                      if (mockBet && mockBet.userId.startsWith('mock_')) {
+                        mockBet.coeffWin = coeffWin.toFixed(2);
+                        const betAmount = parseFloat(mockBet.betAmount || '0');
+                        const winAmount = Math.round(betAmount * coeffWin); // Round to full number
+                        mockBet.winAmount = winAmount.toString(); // Store as full number string
+                        activeRound.bets.set(playerGameId, mockBet);
+                        activeRound.mockBetsCashoutSchedule.delete(playerGameId);
+                        await this.sugarDaddyGameService.saveActiveRoundToRedis();
+                        
+                        // Broadcast updated game state
+                        const gameState = await this.sugarDaddyGameService.getCurrentGameState();
+                        if (gameState) {
+                          this.broadcastGameStateChange(gameCode, gameState);
+                        }
+                      }
+                    }
+                  }
+                } else {
+                  // Handle actual bet cashout
+                  this.processAutoCashout(playerGameId, bet, gameCode).catch((error) => {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    this.logger.error(
+                      `[AUTO_CASHOUT_ERROR] Failed to process auto-cashout for playerGameId=${playerGameId}: ${errorMessage}`,
+                    );
+                  });
+                }
               }
             }
 
@@ -929,6 +958,14 @@ export class SugarDaddyGameHandler implements IGameHandler {
     gameCode: string | null,
   ): Promise<void> {
     try {
+      // CRITICAL: Check if bet is mock bet - mock bets should not go through wallet/database
+      if (bet.userId.startsWith('mock_')) {
+        this.logger.debug(
+          `[AUTO_CASHOUT] Skipping mock bet cashout in processAutoCashout (handled separately): playerGameId=${playerGameId}`,
+        );
+        return;
+      }
+
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
       if (!activeRound) {
         return;

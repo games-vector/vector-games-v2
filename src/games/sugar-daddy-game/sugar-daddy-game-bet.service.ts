@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
+import * as crypto from 'crypto';
 import { WalletService, BetService as CoreBetService, BetStatus } from '@games-vector/game-core';
 import { BetData, PendingBet } from './DTO/game-state.dto';
 import { SugarDaddyGameService } from './sugar-daddy-game.service';
@@ -717,6 +718,71 @@ export class SugarDaddyGameBetService {
     }
   }
 
+  /**
+   * Generate fairness data for a bet from active round
+   * @param userId - User ID to find client seed
+   * @returns Fairness data object or null if activeRound is not available
+   */
+  private async generateFairnessDataForBet(userId: string): Promise<{
+    decimal?: string;
+    clientSeed?: string;
+    serverSeed?: string;
+    combinedHash?: string;
+    hashedServerSeed?: string;
+  } | null> {
+    try {
+      const activeRound = await this.sugarDaddyGameService.getActiveRound();
+      
+      if (!activeRound || !activeRound.serverSeed) {
+        this.logger.warn(`[FAIRNESS_DATA] Cannot generate fairness data: activeRound or serverSeed missing for userId=${userId}`);
+        return null;
+      }
+
+      // Find user's client seed
+      const userClientSeed = activeRound.clientsSeeds.find(
+        (clientSeed) => clientSeed.userId === userId,
+      );
+
+      if (!userClientSeed) {
+        this.logger.warn(`[FAIRNESS_DATA] Client seed not found for userId=${userId}`);
+        return null;
+      }
+
+      const clientSeed = userClientSeed.seed;
+      const serverSeed = activeRound.serverSeed;
+
+      // Calculate hashedServerSeed
+      const hashedServerSeed = crypto
+        .createHash('sha256')
+        .update(serverSeed)
+        .digest('hex');
+
+      // Calculate combinedHash
+      const combinedHash = crypto
+        .createHash('sha256')
+        .update(clientSeed + serverSeed)
+        .digest('hex');
+
+      // Calculate decimal from combinedHash (first 16 hex chars)
+      const hexValue = combinedHash.substring(0, 16);
+      const decimalValue = parseInt(hexValue, 16) / Math.pow(16, 16);
+      const decimal = decimalValue > 1e100 
+        ? decimalValue.toExponential() 
+        : decimalValue.toString();
+
+      return {
+        decimal,
+        clientSeed,
+        serverSeed,
+        combinedHash,
+        hashedServerSeed,
+      };
+    } catch (error: any) {
+      this.logger.error(`[FAIRNESS_DATA] Error generating fairness data for userId=${userId}: ${error.message}`);
+      return null;
+    }
+  }
+
   async cashOut(
     userId: string,
     agentId: string,
@@ -874,6 +940,9 @@ export class SugarDaddyGameBetService {
         );
       }
 
+      // Generate fairness data for the bet
+      const fairnessData = await this.generateFairnessDataForBet(userId);
+
       await this.betService.recordSettlement({
         externalPlatformTxId,
         winAmount: cashedOutBet.winAmount || '0',
@@ -882,6 +951,7 @@ export class SugarDaddyGameBetService {
         updatedBy: userId,
         withdrawCoeff: cashedOutBet.coeffWin,
         finalCoeff: cashedOutBet.coeffWin,
+        fairnessData: fairnessData || undefined,
       });
 
       const betAmount = parseFloat(cashedOutBet.betAmount);
@@ -1347,6 +1417,11 @@ export class SugarDaddyGameBetService {
       const uncashedBets: Array<{ playerGameId: string; bet: BetData }> = [];
 
       for (const [playerGameId, bet] of activeRound.bets.entries()) {
+        // Skip mock bets - they should not be settled via wallet/DB
+        if (bet.userId.startsWith('mock_')) {
+          continue;
+        }
+        
         if (!bet.coeffWin || !bet.winAmount) {
           uncashedBets.push({ playerGameId, bet });
         }
@@ -1391,6 +1466,9 @@ export class SugarDaddyGameBetService {
           const winAmount = '0';
           const finalCoeff = crashCoeff.toFixed(2);
 
+          // Generate fairness data for the bet
+          const fairnessData = await this.generateFairnessDataForBet(bet.userId);
+
           await this.betService.recordSettlement({
             externalPlatformTxId,
             winAmount,
@@ -1399,6 +1477,7 @@ export class SugarDaddyGameBetService {
             updatedBy: 'system',
             withdrawCoeff: '0.00',
             finalCoeff,
+            fairnessData: fairnessData || undefined,
           });
 
           const betAmount = parseFloat(bet.betAmount);

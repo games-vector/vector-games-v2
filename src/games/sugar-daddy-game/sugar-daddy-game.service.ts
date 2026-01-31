@@ -16,6 +16,7 @@ interface ActiveRound {
   crashCoeff: number | null;
   startTime: number;
   bets: Map<string, BetData>;
+  mockBetsCashoutSchedule: Map<string, { playerGameId: string; cashoutCoeff: number }>;
   serverSeed: string;
   clientsSeeds: Array<{
     userId: string;
@@ -34,6 +35,7 @@ export class SugarDaddyGameService {
   private activeRound: ActiveRound | null = null;
   private previousRoundBets: BetData[] = [];
   private roundCounter = 0;
+  private pendingMockBets: BetData[] = []; // Mock bets waiting to be added gradually
   private readonly ROUND_DURATION_MS = GAME_CONSTANTS.SUGAR_DADDY.ROUND_DURATION_MS;
   private readonly COEFF_UPDATE_INTERVAL_MS = GAME_CONSTANTS.SUGAR_DADDY.COEFF_UPDATE_INTERVAL_MS;
   private readonly MIN_COEFF = GAME_CONSTANTS.SUGAR_DADDY.MIN_COEFF;
@@ -78,6 +80,7 @@ export class SugarDaddyGameService {
       crashCoeff: null,
       startTime: Date.now(),
       bets: new Map(),
+      mockBetsCashoutSchedule: new Map(),
       serverSeed,
       clientsSeeds: [],
       combinedHash: '',
@@ -87,10 +90,32 @@ export class SugarDaddyGameService {
 
     this.activeRound.crashCoeff = await this.calculateCrashCoefficient(serverSeed);
 
+    // Generate mock bets for display purposes (will be added gradually during WAIT_GAME)
+    // Ensure minimum of 15 mock bets
+    const mockBets = this.generateMockBets(100);
+    
+    // Validate minimum 15 mock bets requirement
+    if (mockBets.length < 15) {
+      this.logger.warn(
+        `[MOCK_BETS] Generated only ${mockBets.length} mock bets, but minimum is 15. This should not happen.`,
+      );
+      // Generate additional bets to reach minimum
+      const additionalBets = this.generateMockBets(100);
+      mockBets.push(...additionalBets.slice(0, 15 - mockBets.length));
+    }
+    
+    // Schedule cashouts for 50-60% of mock bets (before adding to map)
+    if (this.activeRound.crashCoeff) {
+      this.scheduleMockBetsCashouts(mockBets, this.activeRound.crashCoeff);
+    }
+    
+    // Store mock bets temporarily - they will be added gradually by scheduler
+    this.pendingMockBets = mockBets;
+
     await this.saveActiveRoundToRedis();
 
     this.logger.log(
-      `[SUGAR_DADDY] Started new round: roundId=${roundId} gameUUID=${gameUUID} crashCoeff=${this.activeRound.crashCoeff}`,
+      `[SUGAR_DADDY] Started new round: roundId=${roundId} gameUUID=${gameUUID} crashCoeff=${this.activeRound.crashCoeff} mockBetsCount=${mockBets.length}`,
     );
 
     return this.activeRound;
@@ -210,7 +235,7 @@ export class SugarDaddyGameService {
    * Check and return bets that should be auto-cashed out
    * Returns array of bets that need auto-cashout processing
    */
-  async getAutoCashoutBets(): Promise<Array<{ playerGameId: string; bet: BetData }>> {
+  async getAutoCashoutBets(): Promise<Array<{ playerGameId: string; bet: BetData; isMockBet?: boolean }>> {
     await this.loadActiveRoundFromRedis();
 
     if (!this.activeRound) {
@@ -218,23 +243,43 @@ export class SugarDaddyGameService {
     }
 
     const currentCoeff = this.activeRound.currentCoeff;
-    const autoCashoutBets: Array<{ playerGameId: string; bet: BetData }> = [];
+    const autoCashoutBets: Array<{ playerGameId: string; bet: BetData; isMockBet?: boolean }> = [];
 
+    // Check all bets (real and mock) in the bets Map
     for (const [playerGameId, bet] of this.activeRound.bets.entries()) {
       if (bet.coeffWin && bet.winAmount) {
         continue;
       }
 
-      if (bet.coeffAuto) {
-        const autoCoeff = parseFloat(bet.coeffAuto);
-        const roundedCurrentCoeff = Math.round(currentCoeff * GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION) / GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION;
-        const roundedAutoCoeff = Math.round(autoCoeff * GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION) / GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION;
-        
-        if (roundedCurrentCoeff >= roundedAutoCoeff) {
-          this.logger.debug(
-            `[AUTO_CASHOUT_CHECK] Bet eligible: playerGameId=${playerGameId} betNumber=${bet.betNumber} currentCoeff=${roundedCurrentCoeff} autoCoeff=${roundedAutoCoeff}`,
-          );
-          autoCashoutBets.push({ playerGameId, bet });
+      const isMockBet = bet.userId.startsWith('mock_');
+
+      if (isMockBet) {
+        // Check mock bets with scheduled cashouts
+        const schedule = this.activeRound.mockBetsCashoutSchedule.get(playerGameId);
+        if (schedule) {
+          const roundedCurrentCoeff = Math.round(currentCoeff * GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION) / GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION;
+          const roundedCashoutCoeff = Math.round(schedule.cashoutCoeff * GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION) / GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION;
+          
+          if (roundedCurrentCoeff >= roundedCashoutCoeff) {
+            this.logger.debug(
+              `[AUTO_CASHOUT_CHECK] Mock bet eligible: playerGameId=${playerGameId} currentCoeff=${roundedCurrentCoeff} cashoutCoeff=${roundedCashoutCoeff}`,
+            );
+            autoCashoutBets.push({ playerGameId, bet, isMockBet: true });
+          }
+        }
+      } else {
+        // Check real bets with auto-cashout
+        if (bet.coeffAuto) {
+          const autoCoeff = parseFloat(bet.coeffAuto);
+          const roundedCurrentCoeff = Math.round(currentCoeff * GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION) / GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION;
+          const roundedAutoCoeff = Math.round(autoCoeff * GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION) / GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION;
+          
+          if (roundedCurrentCoeff >= roundedAutoCoeff) {
+            this.logger.debug(
+              `[AUTO_CASHOUT_CHECK] Bet eligible: playerGameId=${playerGameId} betNumber=${bet.betNumber} currentCoeff=${roundedCurrentCoeff} autoCoeff=${roundedAutoCoeff}`,
+            );
+            autoCashoutBets.push({ playerGameId, bet, isMockBet: false });
+          }
         }
       }
     }
@@ -301,6 +346,7 @@ export class SugarDaddyGameService {
 
   /**
    * Calculate wins for all bets when round ends
+   * Also calculates wins for mock bets that didn't cashout (set to 0 if crashed before cashout)
    */
   private calculateWins(): void {
     if (!this.activeRound) {
@@ -309,11 +355,23 @@ export class SugarDaddyGameService {
 
     const crashCoeff = this.activeRound.crashCoeff || this.MIN_COEFF;
 
+    // Calculate wins for all bets (real and mock)
     for (const [playerGameId, bet] of this.activeRound.bets.entries()) {
       if (bet.coeffWin && bet.winAmount) {
         continue;
       }
 
+      // Skip mock bets when processing real bet logic
+      const isMockBet = bet.userId.startsWith('mock_');
+      
+      if (isMockBet) {
+        // Mock bets that didn't cashout lose (set to 0)
+        bet.coeffWin = '0.00';
+        bet.winAmount = '0';
+        continue;
+      }
+
+      // Process real bets
       if (bet.betNumber === 1 && bet.coeffAuto) {
         const autoCoeff = parseFloat(bet.coeffAuto);
         if (autoCoeff <= crashCoeff) {
@@ -476,6 +534,38 @@ export class SugarDaddyGameService {
     return this.activeRound;
   }
 
+  /**
+   * Add a batch of mock bets to the active round (for gradual addition)
+   */
+  async addMockBetsBatch(bets: BetData[]): Promise<void> {
+    await this.loadActiveRoundFromRedis();
+    if (!this.activeRound) {
+      return;
+    }
+
+    for (const bet of bets) {
+      this.activeRound.bets.set(bet.playerGameId, bet);
+    }
+
+    await this.saveActiveRoundToRedis();
+    this.logger.debug(`[MOCK_BETS] Added batch of ${bets.length} mock bets to active round`);
+  }
+
+  /**
+   * Get pending mock bets that haven't been added yet
+   */
+  getPendingMockBets(): BetData[] {
+    return this.pendingMockBets;
+  }
+
+  /**
+   * Remove mock bets from pending list (after they've been added)
+   */
+  removePendingMockBets(bets: BetData[]): void {
+    const betIds = new Set(bets.map(b => b.playerGameId));
+    this.pendingMockBets = this.pendingMockBets.filter(b => !betIds.has(b.playerGameId));
+  }
+
   async clearActiveRound(): Promise<void> {
     const redisClient = this.redisService.getClient();
     await redisClient.del(this.REDIS_KEY_ACTIVE_ROUND);
@@ -561,7 +651,9 @@ export class SugarDaddyGameService {
       const redisClient = this.redisService.getClient();
       const historyKey = this.REDIS_KEY_COEFFICIENT_HISTORY;
 
-      const historyData = await redisClient.lrange(historyKey, 0, limit - 1);
+      // For default limit (51), return indices 0-50 (51 items)
+      const endIndex = limit === this.COEFFICIENT_HISTORY_LIMIT ? 50 : limit - 1;
+      const historyData = await redisClient.lrange(historyKey, 0, endIndex);
 
       if (!historyData || historyData.length === 0) {
         return [];
@@ -617,7 +709,52 @@ export class SugarDaddyGameService {
       );
 
       // Get top 3 clientsSeeds (first 3 available, no sorting)
-      const topClientsSeeds = this.getTopClientsSeeds(3);
+      let topClientsSeeds = this.getTopClientsSeeds(3);
+      
+      // Include top 3 mock bet winners (mixed with actual, prioritizing actual)
+      const allWinners: Array<{ bet: BetData; winAmount: number }> = [];
+      
+      // Collect all bet winners (real and mock)
+      for (const bet of this.activeRound.bets.values()) {
+        if (bet.coeffWin && bet.winAmount) {
+          const winAmount = parseFloat(bet.winAmount || '0');
+          allWinners.push({ bet, winAmount });
+        }
+      }
+      
+      // Sort by winAmount descending and take top 3
+      allWinners.sort((a, b) => b.winAmount - a.winAmount);
+      const top3Winners = allWinners.slice(0, 3);
+      
+      // Convert top 3 winners to clientsSeeds format, prioritizing actual bets
+      const top3ClientsSeeds: Array<{
+        userId: string;
+        seed: string;
+        nickname: string;
+        gameAvatar: number | null;
+      }> = [];
+      
+      for (const { bet } of top3Winners) {
+        // Check if this user already exists in topClientsSeeds (from actual bets)
+        const existingSeed = topClientsSeeds.find(cs => cs.userId === bet.userId);
+        if (existingSeed) {
+          top3ClientsSeeds.push(existingSeed);
+        } else {
+          // For mock bets or bets not in clientsSeeds, create entry
+          const userClientSeed = this.activeRound.clientsSeeds.find(cs => cs.userId === bet.userId);
+          top3ClientsSeeds.push({
+            userId: bet.userId,
+            seed: userClientSeed?.seed || crypto.randomBytes(8).toString('hex'),
+            nickname: bet.nickname || `user${bet.userId}`,
+            gameAvatar: bet.gameAvatar || null,
+          });
+        }
+      }
+      
+      // Use top 3 winners if we have any, otherwise fall back to original topClientsSeeds
+      if (top3ClientsSeeds.length > 0) {
+        topClientsSeeds = top3ClientsSeeds;
+      }
       
       this.logger.log(
         `[COEFF_HISTORY] Preparing to store: roundId=${this.activeRound.roundId} clientsSeedsCount=${topClientsSeeds.length} activeRoundClientsSeedsCount=${this.activeRound.clientsSeeds?.length || 0}`,
@@ -656,8 +793,8 @@ export class SugarDaddyGameService {
       const redisClient = this.redisService.getClient();
       const historyKey = this.REDIS_KEY_COEFFICIENT_HISTORY;
 
-      await redisClient.lpush(historyKey, JSON.stringify(historyEntry));
-      await redisClient.ltrim(historyKey, 0, this.COEFFICIENT_HISTORY_LIMIT - 1);
+      await redisClient.rpush(historyKey, JSON.stringify(historyEntry));
+      await redisClient.ltrim(historyKey, 0, 50);
 
       this.logger.debug(
         `[COEFF_HISTORY] Stored finished round: roundId=${this.activeRound.roundId} coeff=${this.activeRound.crashCoeff}`,
@@ -667,6 +804,166 @@ export class SugarDaddyGameService {
         `[COEFF_HISTORY] Error storing finished round: ${error.message}`,
       );
     }
+  }
+
+  /**
+   * Generate mock bets for display purposes
+   * Target total: 15k-20k (90% of time), 20k-25k (10% of time)
+   * Individual bet amounts: 10-3,000 INR (multiples of 5)
+   * Minimum 15 bets always
+   */
+  private generateMockBets(targetTotal: number = 100): BetData[] {
+    const mockBets: BetData[] = [];
+    let currentTotal = 0;
+    const minBetAmount = 10;
+    const maxBetAmount = 3000; // Reduced from 13000
+    
+    // Target total: 15k-20k (90%), 20k-25k (10%)
+    const useHighRange = Math.random() < 0.1; // 10% chance
+    const targetMin = useHighRange ? 20000 : 15000;
+    const targetMax = useHighRange ? 25000 : 20000;
+    const calculatedTargetTotal = Math.floor(Math.random() * (targetMax - targetMin + 1)) + targetMin;
+    
+    // Generate random number of bets (minimum 15, up to 30)
+    const numBets = Math.floor(Math.random() * 16) + 15; // 15 to 30
+    
+    // Generate bets until we reach target total
+    for (let i = 0; i < numBets; i++) {
+      // If we haven't reached target, ensure remaining bets will get us there
+      const remainingBets = numBets - i;
+      const remainingNeeded = Math.max(0, calculatedTargetTotal - currentTotal);
+      
+      let betAmount: number;
+      if (remainingNeeded > 0 && remainingBets > 0) {
+        // Ensure we can reach target, but still randomize
+        const minForThisBet = Math.min(minBetAmount, Math.floor(remainingNeeded / remainingBets));
+        const maxForThisBet = Math.min(maxBetAmount, Math.max(minForThisBet, remainingNeeded * 2));
+        betAmount = Math.floor(Math.random() * (maxForThisBet - minForThisBet + 1)) + minForThisBet;
+      } else {
+        // Random bet amount
+        betAmount = Math.floor(Math.random() * (maxBetAmount - minBetAmount + 1)) + minBetAmount;
+      }
+      
+      // Round to nearest multiple of 5
+      betAmount = Math.round(betAmount / 5) * 5;
+      // Ensure minimum of 10
+      if (betAmount < minBetAmount) {
+        betAmount = minBetAmount;
+      }
+      
+      currentTotal += betAmount;
+      
+      const mockUserId = `mock_${uuidv4()}`;
+      const playerGameId = uuidv4();
+      const randomNumber = Math.floor(Math.random() * 10000);
+      const nickname = `Player${randomNumber}`;
+      const gameAvatar = Math.floor(Math.random() * 50) + 1; // 1-50
+      
+      mockBets.push({
+        userId: mockUserId,
+        operatorId: 'system',
+        multiplayerGameId: '',
+        nickname,
+        currency: 'INR',
+        betAmount: betAmount.toString(), // Full number, no decimals
+        betNumber: 0,
+        gameAvatar,
+        playerGameId,
+      });
+    }
+    
+    this.logger.debug(
+      `[MOCK_BETS] Generated ${mockBets.length} mock bets with total ${currentTotal} (target: ${calculatedTargetTotal})`,
+    );
+    
+    return mockBets;
+  }
+
+  /**
+   * Schedule cashouts for 50-60% of mock bets at random coefficients
+   * Distribution: 30% low (1.10-2.00x), 40% medium (2.00-5.00x), 20% high (5.00-10.00x), 10% very high (10.00x+)
+   */
+  private scheduleMockBetsCashouts(mockBets: BetData[], crashCoeff: number): void {
+    if (!this.activeRound || mockBets.length === 0) {
+      return;
+    }
+
+    // Determine how many bets will cashout (50-60% of total)
+    const cashoutPercentage = 0.50 + Math.random() * 0.10; // 50-60%
+    const numBetsToCashout = Math.max(1, Math.floor(mockBets.length * cashoutPercentage));
+    
+    // Shuffle and select bets to cashout
+    const shuffledBets = [...mockBets].sort(() => Math.random() - 0.5);
+    const betsToCashout = shuffledBets.slice(0, numBetsToCashout);
+    
+    // Ensure crashCoeff is at least 1.10 for cashout scheduling
+    const minCrashCoeff = Math.max(1.10, crashCoeff);
+    
+    for (const bet of betsToCashout) {
+      // Determine cashout coefficient based on distribution
+      const random = Math.random();
+      let cashoutCoeff: number;
+      
+      if (random < 0.30) {
+        // 30% cashout at low range (1.10-2.00x)
+        cashoutCoeff = 1.10 + Math.random() * 0.90;
+      } else if (random < 0.70) {
+        // 40% cashout at medium range (2.00-5.00x)
+        cashoutCoeff = 2.00 + Math.random() * 3.00;
+      } else if (random < 0.90) {
+        // 20% cashout at high range (5.00-10.00x)
+        cashoutCoeff = 5.00 + Math.random() * 5.00;
+      } else {
+        // 10% cashout at very high range (10.00x+)
+        const maxHighCoeff = Math.min(minCrashCoeff, 50.00); // Cap at 50x or crashCoeff
+        cashoutCoeff = 10.00 + Math.random() * (maxHighCoeff - 10.00);
+      }
+      
+      // Ensure cashout coefficient doesn't exceed crash coefficient
+      cashoutCoeff = Math.min(cashoutCoeff, minCrashCoeff);
+      cashoutCoeff = parseFloat(cashoutCoeff.toFixed(2));
+      
+      this.activeRound.mockBetsCashoutSchedule.set(bet.playerGameId, {
+        playerGameId: bet.playerGameId,
+        cashoutCoeff,
+      });
+    }
+    
+    this.logger.debug(
+      `[MOCK_BETS_CASHOUT] Scheduled ${betsToCashout.length} mock bet cashouts out of ${mockBets.length} total bets`,
+    );
+  }
+
+  /**
+   * Process mock bet cashout (display only, no wallet/database operations)
+   */
+  private processMockBetCashout(playerGameId: string, bet: BetData, coeffWin: number): void {
+    if (!this.activeRound) {
+      return;
+    }
+
+    // Update mock bet with cashout info
+    bet.coeffWin = coeffWin.toFixed(2);
+    const betAmount = parseFloat(bet.betAmount || '0');
+    const winAmount = Math.round(betAmount * coeffWin); // Round to full number
+    bet.winAmount = winAmount.toString(); // Store as full number string
+
+    // Update in bets map
+    this.activeRound.bets.set(playerGameId, bet);
+
+    // Remove from cashout schedule
+    this.activeRound.mockBetsCashoutSchedule.delete(playerGameId);
+
+    this.logger.debug(
+      `[MOCK_BET_CASHOUT] Processed mock bet cashout: playerGameId=${playerGameId} coeffWin=${coeffWin.toFixed(2)} winAmount=${winAmount}`,
+    );
+  }
+
+  /**
+   * Check if a bet is a mock bet
+   */
+  private isMockBet(bet: BetData): boolean {
+    return bet.userId.startsWith('mock_');
   }
 
   /**
@@ -863,6 +1160,7 @@ export class SugarDaddyGameService {
       const redisClient = this.redisService.getClient();
 
       const betsArray = Array.from(this.activeRound.bets.entries());
+      const mockBetsCashoutScheduleArray = Array.from(this.activeRound.mockBetsCashoutSchedule.entries());
 
       const roundData = {
         roundId: this.activeRound.roundId,
@@ -872,6 +1170,7 @@ export class SugarDaddyGameService {
         crashCoeff: this.activeRound.crashCoeff,
         startTime: this.activeRound.startTime,
         bets: betsArray,
+        mockBetsCashoutSchedule: mockBetsCashoutScheduleArray,
         serverSeed: this.activeRound.serverSeed,
         clientsSeeds: this.activeRound.clientsSeeds,
         combinedHash: this.activeRound.combinedHash,
@@ -926,6 +1225,20 @@ export class SugarDaddyGameService {
         }
       }
 
+      // Handle backward compatibility: merge old mockBets into bets if they exist
+      if (roundData.mockBets && Array.isArray(roundData.mockBets)) {
+        for (const [key, value] of roundData.mockBets) {
+          betsMap.set(key, value as BetData);
+        }
+      }
+
+      const mockBetsCashoutScheduleMap = new Map<string, { playerGameId: string; cashoutCoeff: number }>();
+      if (roundData.mockBetsCashoutSchedule && Array.isArray(roundData.mockBetsCashoutSchedule)) {
+        for (const [key, value] of roundData.mockBetsCashoutSchedule) {
+          mockBetsCashoutScheduleMap.set(key, value as { playerGameId: string; cashoutCoeff: number });
+        }
+      }
+
       // Ensure clientsSeeds is properly deserialized as an array
       let clientsSeeds: Array<{ userId: string; seed: string; nickname: string; gameAvatar: number | null }> = [];
       if (roundData.clientsSeeds) {
@@ -945,6 +1258,7 @@ export class SugarDaddyGameService {
         crashCoeff: roundData.crashCoeff,
         startTime: roundData.startTime,
         bets: betsMap,
+        mockBetsCashoutSchedule: mockBetsCashoutScheduleMap,
         serverSeed: roundData.serverSeed,
         clientsSeeds: clientsSeeds,
         combinedHash: roundData.combinedHash || '',
@@ -1034,18 +1348,56 @@ export class SugarDaddyGameService {
       return null;
     }
 
-    const actualBets: BetData[] = Array.from(this.activeRound.bets.values())
+    // Get all bets (real and mock) from bets Map
+    // Strip "mock_" prefix from userId for UI display (users shouldn't see it's a mock bet)
+    const allBets: BetData[] = Array.from(this.activeRound.bets.values())
+      .map(bet => {
+        const cleanBet = { ...bet };
+        if (cleanBet.userId.startsWith('mock_')) {
+          cleanBet.userId = cleanBet.userId.replace(/^mock_/, '');
+        }
+        return cleanBet;
+      })
       .sort((a, b) => parseFloat(b.betAmount || '0') - parseFloat(a.betAmount || '0')); // Sort by betAmount descending
-    const totalBetsAmount = actualBets.reduce(
-      (sum, bet) => sum + parseFloat(bet.betAmount || '0'),
-      0,
-    );
+    
+    // State-based previous bets logic
+    let finalBets: BetData[] = [];
+    let finalPreviousBets: BetData[] = [];
+    let totalBetsAmount = 0;
+    let previousBetsTotalAmount = 0;
 
-    const previousBets = await this.getPreviousBetsFromRedis();
-    const previousBetsTotalAmount = previousBets.reduce(
-      (sum, bet) => sum + parseFloat(bet.betAmount || '0'),
-      0,
-    );
+    if (this.activeRound.status === GameStatus.WAIT_GAME) {
+      // WAIT_GAME: Show current bets + previous bets separately
+      const previousBets = await this.getPreviousBetsFromRedis();
+      finalBets = allBets; // Current round bets
+      finalPreviousBets = previousBets; // Previous round bets
+      totalBetsAmount = allBets.reduce(
+        (sum, bet) => sum + parseFloat(bet.betAmount || '0'),
+        0,
+      );
+      previousBetsTotalAmount = previousBets.reduce(
+        (sum, bet) => sum + parseFloat(bet.betAmount || '0'),
+        0,
+      );
+    } else if (this.activeRound.status === GameStatus.FINISH_GAME) {
+      // FINISH_GAME: Show the bets that just finished in bets.values
+      finalBets = allBets; // These are the bets from the round that just finished
+      finalPreviousBets = []; // Empty - previous bets not shown
+      totalBetsAmount = allBets.reduce(
+        (sum, bet) => sum + parseFloat(bet.betAmount || '0'),
+        0,
+      );
+      previousBetsTotalAmount = 0;
+    } else {
+      // IN_GAME: Show only current bets
+      finalBets = allBets; // Current round bets
+      finalPreviousBets = []; // Empty - previous bets not shown
+      totalBetsAmount = allBets.reduce(
+        (sum, bet) => sum + parseFloat(bet.betAmount || '0'),
+        0,
+      );
+      previousBetsTotalAmount = 0;
+    }
 
     let waitTime: number | null = null;
     if (this.activeRound.status === GameStatus.WAIT_GAME) {
@@ -1060,11 +1412,11 @@ export class SugarDaddyGameService {
       waitTime,
       bets: {
         totalBetsAmount,
-        values: actualBets,
+        values: finalBets,
       },
       previousBets: {
         totalBetsAmount: previousBetsTotalAmount,
-        values: previousBets,
+        values: finalPreviousBets,
       },
     };
 

@@ -18,7 +18,7 @@ export class DiverGameService extends BaseCrashGameService {
   }
 
   protected getGameConstants(): typeof GAME_CONSTANTS.SUGAR_DADDY {
-    return GAME_CONSTANTS.DIVER as typeof GAME_CONSTANTS.SUGAR_DADDY;
+    return GAME_CONSTANTS.DIVER as unknown as typeof GAME_CONSTANTS.SUGAR_DADDY;
   }
 
   protected getDefaultGameConfig(): { betConfig: any; rtp: number } {

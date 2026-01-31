@@ -19,6 +19,8 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
   private leaderRenewTimer: NodeJS.Timeout | null = null;
   private leaderElectionTimer: NodeJS.Timeout | null = null;
   private retryTimer: NodeJS.Timeout | null = null;
+  private mockBetsAdditionTimer: NodeJS.Timeout | null = null;
+  private mockBetsToAdd: Array<{ playerGameId: string; bet: any }> = [];
   private isRunning = false;
   private isLeader = false;
 
@@ -54,6 +56,10 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy() {
     this.stopGameLoop();
     this.stopLeaderElection();
+    if (this.mockBetsAdditionTimer) {
+      clearInterval(this.mockBetsAdditionTimer);
+      this.mockBetsAdditionTimer = null;
+    }
     this.sugarDaddyGameService.releaseLeaderLock(this.POD_ID).catch((error) => {
       this.logger.error(`[LEADER_ELECTION] Error releasing lock on shutdown: ${error.message}`);
     });
@@ -238,6 +244,9 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`[SUGAR_DADDY_SCHEDULER] ❌ Failed to get game state after creating round!`);
       }
 
+      // Start gradual mock bet addition during WAIT_GAME
+      this.startGradualMockBetsAddition();
+
       this.logger.log(`[SUGAR_DADDY_SCHEDULER] Starting game state broadcast...`);
       this.sugarDaddyGameHandler.startGameStateBroadcast(this.GAME_CODE);
 
@@ -327,6 +336,119 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.error(`[SCHEDULER_END_ROUND] Error ending round: ${error.message}`, error.stack);
     }
+  }
+
+  /**
+   * Gradually add mock bets during WAIT_GAME phase
+   * Adds 3-5 batches of 2-8 bets each, with 1.5-2.5 second intervals
+   */
+  private startGradualMockBetsAddition(): void {
+    // Clear any existing timer
+    if (this.mockBetsAdditionTimer) {
+      clearInterval(this.mockBetsAdditionTimer);
+      this.mockBetsAdditionTimer = null;
+    }
+
+    const pendingMockBets = this.sugarDaddyGameService.getPendingMockBets();
+    if (pendingMockBets.length === 0) {
+      this.logger.debug(`[MOCK_BETS] No pending mock bets to add gradually`);
+      return;
+    }
+
+    // Determine number of batches (3-5)
+    const numBatches = Math.floor(Math.random() * 3) + 3; // 3-5 batches
+    const betsPerBatch = Math.ceil(pendingMockBets.length / numBatches);
+    
+    let batchIndex = 0;
+    let addedCount = 0;
+
+    const addBatch = async () => {
+      if (!this.isLeader) {
+        this.logger.debug(`[MOCK_BETS] Not leader, stopping gradual addition`);
+        if (this.mockBetsAdditionTimer) {
+          clearInterval(this.mockBetsAdditionTimer);
+          this.mockBetsAdditionTimer = null;
+        }
+        return;
+      }
+
+      const activeRound = await this.sugarDaddyGameService.getActiveRound();
+      if (!activeRound || activeRound.status !== GameStatus.WAIT_GAME) {
+        this.logger.debug(`[MOCK_BETS] Round not in WAIT_GAME, stopping gradual addition`);
+        if (this.mockBetsAdditionTimer) {
+          clearInterval(this.mockBetsAdditionTimer);
+          this.mockBetsAdditionTimer = null;
+        }
+        return;
+      }
+
+      const remainingBets = this.sugarDaddyGameService.getPendingMockBets();
+      if (remainingBets.length === 0) {
+        this.logger.debug(`[MOCK_BETS] All mock bets added, stopping gradual addition`);
+        if (this.mockBetsAdditionTimer) {
+          clearInterval(this.mockBetsAdditionTimer);
+          this.mockBetsAdditionTimer = null;
+        }
+        return;
+      }
+
+      // Determine batch size (2-8 bets, or remaining if less)
+      const batchSize = Math.min(
+        Math.floor(Math.random() * 7) + 2, // 2-8 bets
+        remainingBets.length
+      );
+
+      const batch = remainingBets.slice(0, batchSize);
+      await this.sugarDaddyGameService.addMockBetsBatch(batch);
+      this.sugarDaddyGameService.removePendingMockBets(batch);
+      addedCount += batch.length;
+
+      // Broadcast updated game state
+      const gameState = await this.sugarDaddyGameService.getCurrentGameState();
+      if (gameState) {
+        this.sugarDaddyGameHandler.broadcastGameStateChange(this.GAME_CODE, gameState);
+      }
+
+      batchIndex++;
+      this.logger.debug(
+        `[MOCK_BETS] Added batch ${batchIndex}: ${batch.length} bets (total added: ${addedCount}/${pendingMockBets.length})`,
+      );
+
+      // Stop if we've added all bets or reached max batches
+      if (remainingBets.length <= batchSize || batchIndex >= numBatches) {
+        if (this.mockBetsAdditionTimer) {
+          clearInterval(this.mockBetsAdditionTimer);
+          this.mockBetsAdditionTimer = null;
+        }
+        // Add any remaining bets
+        const finalRemaining = this.sugarDaddyGameService.getPendingMockBets();
+        if (finalRemaining.length > 0) {
+          await this.sugarDaddyGameService.addMockBetsBatch(finalRemaining);
+          this.sugarDaddyGameService.removePendingMockBets(finalRemaining);
+          const finalGameState = await this.sugarDaddyGameService.getCurrentGameState();
+          if (finalGameState) {
+            this.sugarDaddyGameHandler.broadcastGameStateChange(this.GAME_CODE, finalGameState);
+          }
+        }
+      }
+    };
+
+    // Start adding batches with random intervals (1.5-2.5 seconds)
+    const addFirstBatch = () => {
+      addBatch().catch((error) => {
+        this.logger.error(`[MOCK_BETS] Error adding mock bets batch: ${error.message}`);
+      });
+    };
+
+    // Add first batch immediately
+    setTimeout(addFirstBatch, 500); // Small delay to let round settle
+
+    // Schedule subsequent batches
+    this.mockBetsAdditionTimer = setInterval(() => {
+      addBatch().catch((error) => {
+        this.logger.error(`[MOCK_BETS] Error adding mock bets batch: ${error.message}`);
+      });
+    }, 1500 + Math.random() * 1000); // 1.5-2.5 seconds
   }
 
   private async transitionToInGame(): Promise<void> {
