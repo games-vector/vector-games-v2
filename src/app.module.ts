@@ -1,4 +1,4 @@
-import { Logger, Module, OnModuleInit, forwardRef } from '@nestjs/common';
+import { Logger, Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
 
@@ -88,14 +88,14 @@ import { RefundSchedulerModule } from './modules/refund-scheduler/refund-schedul
         return cfgObj;
       },
     }),
-    TypeOrmModule.forFeature([Game]),
-    // Package modules - using forwardRef to ensure TypeORM root is fully initialized
-    forwardRef(() => UserModule),
-    forwardRef(() => AgentsModule),
-    forwardRef(() => BetConfigModule),
-    forwardRef(() => WalletConfigModule),
-    forwardRef(() => WalletAuditModule),
-    forwardRef(() => WalletRetryModule),
+    TypeOrmModule.forFeature([User, Agents, Bet, WalletAudit, WalletRetryJob, Game]),
+    // Package modules - import after TypeORM entities are registered
+    UserModule,
+    AgentsModule,
+    BetConfigModule,
+    WalletConfigModule,
+    WalletAuditModule,
+    WalletRetryModule,
     // JWT configuration - loaded from game config table (platform config)
     // Falls back to environment variable, then to defaults
     // To configure: INSERT INTO game_config_platform (`key`, `value`) VALUES ('jwt.expiresIn', '24h');
