@@ -744,12 +744,18 @@ export class SugarDaddyGameBetService {
       if (activeRound && activeRound.serverSeed) {
         // Check if this is the correct round
         if (!roundId || activeRound.roundId === roundId) {
+          this.logger.debug(
+            `[FAIRNESS_DATA] Checking activeRound for userId=${userId} roundId=${roundId} activeRound.roundId=${activeRound.roundId} clientsSeedsCount=${activeRound.clientsSeeds?.length || 0}`,
+          );
           // Find user's client seed
           const userClientSeed = activeRound.clientsSeeds.find(
             (clientSeed) => clientSeed.userId === userId,
           );
 
           if (userClientSeed) {
+            this.logger.debug(
+              `[FAIRNESS_DATA] Found client seed in activeRound for userId=${userId} roundId=${roundId}`,
+            );
             const clientSeed = userClientSeed.seed;
             const serverSeed = activeRound.serverSeed;
 
@@ -782,20 +788,47 @@ export class SugarDaddyGameBetService {
               hashedServerSeed,
               clientsSeeds: topClientsSeeds,
             };
+          } else {
+            this.logger.warn(
+              `[FAIRNESS_DATA] Client seed not found in activeRound.clientsSeeds for userId=${userId} roundId=${roundId} activeRound.roundId=${activeRound.roundId} clientsSeedsCount=${activeRound.clientsSeeds?.length || 0}`,
+            );
           }
+        } else {
+          this.logger.debug(
+            `[FAIRNESS_DATA] RoundId mismatch: activeRound.roundId=${activeRound.roundId} expected=${roundId}`,
+          );
         }
+      } else {
+        this.logger.debug(
+          `[FAIRNESS_DATA] activeRound or serverSeed missing: activeRound=${!!activeRound} serverSeed=${activeRound?.serverSeed ? 'present' : 'missing'}`,
+        );
       }
 
-      // If not found in activeRound, try to get from coefficient history (for older bets)
+      // If not found in activeRound, try to get from coefficient history (for older bets or current round)
+      // IMPORTANT: For current round, coefficient history is stored during endRound(), so it should be available
       if (roundId) {
         const coefficientsHistory = await this.sugarDaddyGameService.getCoefficientsHistory(1000);
         const coeffHistory = coefficientsHistory.find(h => h.gameId === roundId);
         
         if (coeffHistory && coeffHistory.serverSeed) {
-          // Find user's client seed in the coefficient history's clientsSeeds
-          const userClientSeed = coeffHistory.clientsSeeds.find(
+          // First try to find user's client seed in the coefficient history's clientsSeeds (top 3 winners)
+          let userClientSeed = coeffHistory.clientsSeeds.find(
             (clientSeed) => clientSeed.userId === userId,
           );
+
+          // If not found in top 3, and we have activeRound, try to get from activeRound.clientsSeeds
+          // This handles cases where the user placed a bet but wasn't in top 3 winners
+          if (!userClientSeed && activeRound && activeRound.roundId === roundId) {
+            const activeRoundClientSeed = activeRound.clientsSeeds.find(
+              (clientSeed) => clientSeed.userId === userId,
+            );
+            if (activeRoundClientSeed) {
+              userClientSeed = activeRoundClientSeed;
+              this.logger.debug(
+                `[FAIRNESS_DATA] Found client seed in activeRound (not in top 3) for userId=${userId} roundId=${roundId}`,
+              );
+            }
+          }
 
           if (userClientSeed) {
             const clientSeed = userClientSeed.seed;
