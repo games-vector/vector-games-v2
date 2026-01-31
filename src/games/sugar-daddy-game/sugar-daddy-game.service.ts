@@ -159,9 +159,7 @@ export class SugarDaddyGameService {
     const payload = await this.buildGameStatePayload();
     
     if (payload) {
-      this.logger.debug(
-        `[GET_CURRENT_GAME_STATE] Returning state: status=${payload.status} roundId=${payload.roundId} betsCount=${payload.bets.values.length}`,
-      );
+      // Log removed to reduce log size - state retrieval is working normally
     }
 
     return payload;
@@ -1420,9 +1418,83 @@ export class SugarDaddyGameService {
       },
     };
 
-    if (this.activeRound.status === GameStatus.FINISH_GAME && this.activeRound.crashCoeff) {
-      payload.coeffCrash = this.activeRound.crashCoeff;
-      payload.coefficients = await this.getCoefficientsHistory(this.COEFFICIENT_HISTORY_LIMIT);
+    if (this.activeRound && this.activeRound.status === GameStatus.FINISH_GAME && this.activeRound.crashCoeff) {
+      const activeRound = this.activeRound; // Store reference to avoid null check issues
+      const crashCoeff = activeRound.crashCoeff!; // Non-null assertion: we know it's not null from the condition
+      payload.coeffCrash = crashCoeff;
+      
+      // Fetch existing history
+      const existingHistory = await this.getCoefficientsHistory(this.COEFFICIENT_HISTORY_LIMIT);
+      
+      // Get top 3 clientsSeeds (same logic as storeFinishedRound)
+      let topClientsSeeds = this.getTopClientsSeeds(3);
+      
+      // Include top 3 mock bet winners (mixed with actual, prioritizing actual)
+      const allWinners: Array<{ bet: BetData; winAmount: number }> = [];
+      
+      // Collect all bet winners (real and mock)
+      for (const bet of activeRound.bets.values()) {
+        if (bet.coeffWin && bet.winAmount) {
+          const winAmount = parseFloat(bet.winAmount || '0');
+          allWinners.push({ bet, winAmount });
+        }
+      }
+      
+      // Sort by winAmount descending and take top 3
+      allWinners.sort((a, b) => b.winAmount - a.winAmount);
+      const top3Winners = allWinners.slice(0, 3);
+      
+      // Convert top 3 winners to clientsSeeds format, prioritizing actual bets
+      const top3ClientsSeeds: Array<{
+        userId: string;
+        seed: string;
+        nickname: string;
+        gameAvatar: number | null;
+      }> = [];
+      
+      for (const { bet } of top3Winners) {
+        // Check if this user already exists in topClientsSeeds (from actual bets)
+        const existingSeed = topClientsSeeds.find(cs => cs.userId === bet.userId);
+        if (existingSeed) {
+          top3ClientsSeeds.push(existingSeed);
+        } else {
+          // For mock bets or bets not in clientsSeeds, create entry
+          const userClientSeed = activeRound.clientsSeeds.find(cs => cs.userId === bet.userId);
+          top3ClientsSeeds.push({
+            userId: bet.userId,
+            seed: userClientSeed?.seed || crypto.randomBytes(8).toString('hex'),
+            nickname: bet.nickname || `user${bet.userId}`,
+            gameAvatar: bet.gameAvatar || null,
+          });
+        }
+      }
+      
+      // Use top 3 winners if we have any, otherwise fall back to original topClientsSeeds
+      if (top3ClientsSeeds.length > 0) {
+        topClientsSeeds = top3ClientsSeeds;
+      }
+      
+      // Construct current round's coefficient history entry
+      const currentRoundEntry: CoefficientHistory = {
+        coeff: crashCoeff,
+        gameId: activeRound.roundId,
+        gameUUID: activeRound.gameUUID,
+        serverSeed: activeRound.serverSeed,
+        clientsSeeds: topClientsSeeds,
+        combinedHash: activeRound.combinedHash,
+        decimal: activeRound.decimal,
+      };
+      
+      // Check if current round is already in history (by gameId)
+      const currentRoundInHistory = existingHistory.find(h => h.gameId === activeRound.roundId);
+      
+      if (!currentRoundInHistory) {
+        // Prepend current round to history (it's the newest)
+        payload.coefficients = [currentRoundEntry, ...existingHistory].slice(0, this.COEFFICIENT_HISTORY_LIMIT);
+      } else {
+        // Current round already in history, use as-is
+        payload.coefficients = existingHistory;
+      }
     }
 
     return payload;
@@ -1608,7 +1680,7 @@ export class SugarDaddyGameService {
       if (speedRaw && speedRaw !== '{}') {
         const speed = parseFloat(speedRaw);
         if (!isNaN(speed) && speed > 0 && speed <= 10) {
-          this.logger.debug(`[loadCoefficientSpeed] Loaded speed=${speed} from database for ${gameCode}`);
+          // Log removed to reduce log size - speed loading is working normally
           return speed;
         } else {
           this.logger.warn(

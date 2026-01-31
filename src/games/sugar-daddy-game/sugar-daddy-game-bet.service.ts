@@ -944,6 +944,8 @@ export class SugarDaddyGameBetService {
       // Generate fairness data for the bet
       const fairnessData = await this.generateFairnessDataForBet(userId);
 
+      const finalCoeff = activeRound.crashCoeff ? activeRound.crashCoeff.toFixed(2) : undefined;
+
       await this.betService.recordSettlement({
         externalPlatformTxId,
         winAmount: cashedOutBet.winAmount || '0',
@@ -951,7 +953,7 @@ export class SugarDaddyGameBetService {
         settledAt: new Date(),
         updatedBy: userId,
         withdrawCoeff: cashedOutBet.coeffWin,
-        finalCoeff: cashedOutBet.coeffWin,
+        finalCoeff: finalCoeff,
         fairnessData: fairnessData || undefined,
       });
 
@@ -1059,8 +1061,7 @@ export class SugarDaddyGameBetService {
         // withdrawCoeff: bet's withdrawCoeff if exists, else 0
         const withdrawCoeff = bet.withdrawCoeff ? parseFloat(bet.withdrawCoeff) : 0;
         
-        // finishCoeff: round's final coefficient (crashCoeff) from coefficient history
-        const finishCoeff = coeffHistory?.coeff || 0;
+        const finishCoeff = coeffHistory?.coeff || (bet.finalCoeff ? parseFloat(bet.finalCoeff) : 0);
         
         return {
           id: bet.id,
@@ -1426,7 +1427,9 @@ export class SugarDaddyGameBetService {
       }
 
       const crashCoeff = activeRound.crashCoeff || 1.0;
+      const finalCoeff = crashCoeff.toFixed(2);
       const uncashedBets: Array<{ playerGameId: string; bet: BetData }> = [];
+      const cashedOutBets: Array<{ playerGameId: string; bet: BetData }> = [];
 
       for (const [playerGameId, bet] of activeRound.bets.entries()) {
         // Skip mock bets - they should not be settled via wallet/DB
@@ -1436,6 +1439,38 @@ export class SugarDaddyGameBetService {
         
         if (!bet.coeffWin || !bet.winAmount) {
           uncashedBets.push({ playerGameId, bet });
+        } else {
+          cashedOutBets.push({ playerGameId, bet });
+        }
+      }
+
+      for (const { playerGameId, bet } of cashedOutBets) {
+        try {
+          const mappingKey = `sugar-daddy:bet:${playerGameId}`;
+          const externalPlatformTxId = await this.redisService.get<string>(mappingKey);
+
+          if (externalPlatformTxId) {
+            const betRecord = await this.betService.getByExternalTxId(externalPlatformTxId, gameCode);
+            if (betRecord && (!betRecord.finalCoeff || betRecord.finalCoeff === betRecord.withdrawCoeff)) {
+              await this.betService.recordSettlement({
+                externalPlatformTxId,
+                winAmount: betRecord.winAmount || '0',
+                settleType: 'cashout',
+                settledAt: betRecord.settledAt || new Date(),
+                updatedBy: 'system',
+                withdrawCoeff: betRecord.withdrawCoeff || '0.00',
+                finalCoeff: finalCoeff,
+                fairnessData: betRecord.fairnessData || undefined,
+              });
+              this.logger.debug(
+                `[SETTLE_UNCASHED] Updated finalCoeff for cashed out bet: playerGameId=${playerGameId} finalCoeff=${finalCoeff}`,
+              );
+            }
+          }
+        } catch (error) {
+          this.logger.warn(
+            `[SETTLE_UNCASHED] Failed to update finalCoeff for cashed out bet: playerGameId=${playerGameId} error=${error.message}`,
+          );
         }
       }
 

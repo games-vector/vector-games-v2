@@ -1146,7 +1146,7 @@ export abstract class BaseCrashGameService {
       if (speedRaw && speedRaw !== '{}') {
         const speed = parseFloat(speedRaw);
         if (!isNaN(speed) && speed > 0 && speed <= 10) {
-          this.logger.debug(`Loaded speed=${speed} from database for ${gameCode}`);
+          // Log removed to reduce log size - speed loading is working normally
           return speed;
         } else {
           this.logger.warn(

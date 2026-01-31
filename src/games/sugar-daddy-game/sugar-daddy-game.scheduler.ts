@@ -476,7 +476,6 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
 
       const gameState = await this.sugarDaddyGameService.getCurrentGameState();
       if (gameState) {
-        this.logger.log(`[SUGAR_DADDY_SCHEDULER] Broadcasting IN_GAME state: roundId=${gameState.roundId}`);
         this.sugarDaddyGameHandler.broadcastGameStateChange(this.GAME_CODE, gameState);
       } else {
         this.logger.error(`[SUGAR_DADDY_SCHEDULER] ❌ Failed to get game state after starting game`);
