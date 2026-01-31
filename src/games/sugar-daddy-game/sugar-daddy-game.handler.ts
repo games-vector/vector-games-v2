@@ -633,9 +633,13 @@ export class SugarDaddyGameHandler implements IGameHandler {
     const eventName = WS_EVENTS.GAME_SERVICE_ON_CHANGE_STATE;
     const room = gameCode ? `game:${gameCode}` : null;
 
-    this.logger.log(
-      `[BROADCAST_STATE] Broadcasting game state: event=${eventName} room=${room || 'all'} status=${payload.status} roundId=${payload.roundId} betsCount=${payload.bets.values.length} crashCoeff=${payload.coeffCrash || 'N/A'}`,
-    );
+    // Log removed to reduce log size - only log important state transitions
+    // Only log FINISH_GAME and critical errors
+    if (payload.status === 'FINISH_GAME') {
+      this.logger.log(
+        `[BROADCAST_STATE] Broadcasting FINISH_GAME: roundId=${payload.roundId} crashCoeff=${payload.coeffCrash || 'N/A'}`,
+      );
+    }
 
     if (room) {
       // Safely get client count from adapter if available
@@ -651,12 +655,7 @@ export class SugarDaddyGameHandler implements IGameHandler {
         );
       }
       
-      if (clientCount > 0) {
-        this.logger.log(
-          `[BROADCAST_STATE] Room ${room} has ${clientCount} connected clients`,
-        );
-      }
-      // Log removed to reduce log size - broadcast is working normally
+      // Log removed to reduce log size - client count logging removed
       
       this.server.to(room).emit(eventName, payload);
       // Log removed to reduce log size - broadcast is working normally
@@ -714,7 +713,21 @@ export class SugarDaddyGameHandler implements IGameHandler {
       coeffCrash: gameState?.coeffCrash ?? (currentCoeff?.coeff || null),
     };
 
-    const coefficients = await this.sugarDaddyGameService.getCoefficientsHistory(51);
+    let coefficients = await this.sugarDaddyGameService.getCoefficientsHistory(51);
+    
+    // Ensure order is correct: oldest at index 0, newest at index 50
+    // Verify by checking if the last item has a higher gameId than the first (newer rounds have higher gameIds)
+    if (coefficients.length > 1) {
+      const firstGameId = coefficients[0]?.gameId || 0;
+      const lastGameId = coefficients[coefficients.length - 1]?.gameId || 0;
+      if (lastGameId < firstGameId) {
+        // Order is reversed, fix it
+        this.logger.warn(
+          `[COEFF_HISTORY] Coefficient history order is reversed in onConnectGame, fixing it. First gameId=${firstGameId}, Last gameId=${lastGameId}`,
+        );
+        coefficients = coefficients.reverse();
+      }
+    }
 
     const payload: OnConnectGamePayload = {
       success: true,
@@ -885,15 +898,14 @@ export class SugarDaddyGameHandler implements IGameHandler {
         this.stopGameStateBroadcast();
       }
 
-      this.logger.log(`[GAME_STATE_BROADCAST] Starting game state broadcast for gameCode=${gameCode || 'sugar-daddy'}`);
+      // Log removed to reduce log size - game state broadcast is working normally
       
       this.sugarDaddyGameService.getCurrentGameState()
         .then((initialGameState) => {
           if (initialGameState) {
             this.broadcastGameStateChange(gameCode, initialGameState);
-          } else {
-            this.logger.warn(`[GAME_STATE_BROADCAST] No initial game state available`);
           }
+          // Log removed to reduce log size
         })
         .catch((error) => {
           const errorMessage = error instanceof Error ? error.message : String(error);
@@ -905,9 +917,8 @@ export class SugarDaddyGameHandler implements IGameHandler {
           const gameState = await this.sugarDaddyGameService.getCurrentGameState();
           if (gameState) {
             this.broadcastGameStateChange(gameCode, gameState);
-          } else {
-            this.logger.debug(`[GAME_STATE_BROADCAST] No game state available for periodic broadcast`);
           }
+          // Log removed to reduce log size - periodic broadcast is working normally
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           const errorStack = error instanceof Error ? error.stack : undefined;

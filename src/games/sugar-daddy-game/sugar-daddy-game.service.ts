@@ -546,7 +546,7 @@ export class SugarDaddyGameService {
     }
 
     await this.saveActiveRoundToRedis();
-    this.logger.debug(`[MOCK_BETS] Added batch of ${bets.length} mock bets to active round`);
+    // Log removed to reduce log size - mock bets are being added normally
   }
 
   /**
@@ -668,6 +668,19 @@ export class SugarDaddyGameService {
         })
         .filter((entry): entry is CoefficientHistory => entry !== null);
 
+      // Redis rpush adds to end, lrange(0, 50) gets from start to end
+      // This gives us: [oldest, ..., newest] with oldest at index 0, newest at index 50
+      // This is the correct order - no need to reverse
+
+      // Debug log: Log how many entries retrieved and sample of clientsSeeds
+      if (history.length > 0) {
+        const sampleEntry = history[0];
+        const lastEntry = history[history.length - 1];
+        this.logger.debug(
+          `[CLIENTSSEEDS_DEBUG] getCoefficientsHistory: Retrieved ${history.length} entries, first entry (oldest) gameId=${sampleEntry.gameId} clientsSeedsCount=${sampleEntry.clientsSeeds?.length || 0}, last entry (newest) gameId=${lastEntry.gameId} clientsSeedsCount=${lastEntry.clientsSeeds?.length || 0}`,
+        );
+      }
+
       return history;
     } catch (error) {
       this.logger.error(`[COEFF_HISTORY] Error fetching coefficient history: ${error.message}`);
@@ -757,6 +770,11 @@ export class SugarDaddyGameService {
       this.logger.log(
         `[COEFF_HISTORY] Preparing to store: roundId=${this.activeRound.roundId} clientsSeedsCount=${topClientsSeeds.length} activeRoundClientsSeedsCount=${this.activeRound.clientsSeeds?.length || 0}`,
       );
+      
+      // Debug log: Log clientsSeeds contents before storing
+      this.logger.debug(
+        `[CLIENTSSEEDS_DEBUG] storeFinishedRound: topClientsSeeds count=${topClientsSeeds.length} contents=${JSON.stringify(topClientsSeeds.map(cs => ({ userId: cs.userId, nickname: cs.nickname })))}`,
+      );
 
       let combinedHash = this.activeRound.combinedHash;
       let decimal = this.activeRound.decimal;
@@ -787,12 +805,19 @@ export class SugarDaddyGameService {
       this.logger.debug(
         `[COEFF_HISTORY] Storing finished round: roundId=${this.activeRound.roundId} coeff=${this.activeRound.crashCoeff} clientsSeedsCount=${historyEntry.clientsSeeds.length}`,
       );
+      
+      // Debug log: Log what's being stored in historyEntry.clientsSeeds
+      this.logger.debug(
+        `[CLIENTSSEEDS_DEBUG] storeFinishedRound: Storing historyEntry.clientsSeeds count=${historyEntry.clientsSeeds.length} for gameId=${historyEntry.gameId}`,
+      );
 
       const redisClient = this.redisService.getClient();
       const historyKey = this.REDIS_KEY_COEFFICIENT_HISTORY;
 
       await redisClient.rpush(historyKey, JSON.stringify(historyEntry));
-      await redisClient.ltrim(historyKey, 0, 50);
+      // Keep only the last 51 items (newest at end, oldest of the 51 at start)
+      // Using negative indices: -51 is 51st from end, -1 is last item
+      await redisClient.ltrim(historyKey, -this.COEFFICIENT_HISTORY_LIMIT, -1);
 
       this.logger.debug(
         `[COEFF_HISTORY] Stored finished round: roundId=${this.activeRound.roundId} coeff=${this.activeRound.crashCoeff}`,
@@ -1474,6 +1499,11 @@ export class SugarDaddyGameService {
         topClientsSeeds = top3ClientsSeeds;
       }
       
+      // Debug log: Log clientsSeeds in FINISH_GAME state
+      this.logger.debug(
+        `[CLIENTSSEEDS_DEBUG] buildGameStatePayload FINISH_GAME: topClientsSeeds count=${topClientsSeeds.length} contents=${JSON.stringify(topClientsSeeds.map(cs => ({ userId: cs.userId, nickname: cs.nickname })))}`,
+      );
+      
       // Construct current round's coefficient history entry
       const currentRoundEntry: CoefficientHistory = {
         coeff: crashCoeff,
@@ -1485,16 +1515,39 @@ export class SugarDaddyGameService {
         decimal: activeRound.decimal,
       };
       
+      // Debug log: Log what's being set in currentRoundEntry.clientsSeeds
+      this.logger.debug(
+        `[CLIENTSSEEDS_DEBUG] buildGameStatePayload FINISH_GAME: currentRoundEntry.clientsSeeds count=${currentRoundEntry.clientsSeeds.length} for gameId=${currentRoundEntry.gameId}`,
+      );
+      
       // Check if current round is already in history (by gameId)
       const currentRoundInHistory = existingHistory.find(h => h.gameId === activeRound.roundId);
       
+      let finalCoefficients: CoefficientHistory[];
       if (!currentRoundInHistory) {
-        // Prepend current round to history (it's the newest)
-        payload.coefficients = [currentRoundEntry, ...existingHistory].slice(0, this.COEFFICIENT_HISTORY_LIMIT);
+        // Append current round to history (it's the newest, should be at index 50)
+        // existingHistory is already oldest to newest, so append makes it oldest at 0, newest at end
+        finalCoefficients = [...existingHistory, currentRoundEntry].slice(-this.COEFFICIENT_HISTORY_LIMIT);
       } else {
         // Current round already in history, use as-is
-        payload.coefficients = existingHistory;
+        finalCoefficients = existingHistory;
       }
+      
+      // Ensure order is correct: oldest at index 0, newest at index 50
+      // Verify by checking if the last item has a higher gameId than the first (newer rounds have higher gameIds)
+      if (finalCoefficients.length > 1) {
+        const firstGameId = finalCoefficients[0]?.gameId || 0;
+        const lastGameId = finalCoefficients[finalCoefficients.length - 1]?.gameId || 0;
+        if (lastGameId < firstGameId) {
+          // Order is reversed, fix it
+          this.logger.warn(
+            `[COEFF_HISTORY] Coefficient history order is reversed, fixing it. First gameId=${firstGameId}, Last gameId=${lastGameId}`,
+          );
+          finalCoefficients.reverse();
+        }
+      }
+      
+      payload.coefficients = finalCoefficients;
     }
 
     return payload;

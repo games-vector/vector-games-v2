@@ -235,10 +235,10 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
         this.logger.log(`[SUGAR_DADDY_SCHEDULER] ✅ Pending bets processed: ${pendingBetsResult.processed} processed, ${pendingBetsResult.errors.length} errors`);
       }
 
-      this.logger.log(`[SUGAR_DADDY_SCHEDULER] Getting current game state...`);
+      // Log removed to reduce log size - getting game state is working normally
       const gameState = await this.sugarDaddyGameService.getCurrentGameState();
       if (gameState) {
-        this.logger.log(`[SUGAR_DADDY_SCHEDULER] ✅ Game state retrieved: status=${gameState.status} roundId=${gameState.roundId} betsCount=${gameState.bets.values.length}`);
+        // Log removed to reduce log size - game state retrieved successfully
         this.sugarDaddyGameHandler.broadcastGameStateChange(this.GAME_CODE, gameState);
       } else {
         this.logger.error(`[SUGAR_DADDY_SCHEDULER] ❌ Failed to get game state after creating round!`);
@@ -253,10 +253,10 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
       if (this.waitTimer) {
         clearTimeout(this.waitTimer);
       }
-      this.logger.log(`[SUGAR_DADDY_SCHEDULER] Setting wait timer for ${this.WAIT_TIME_MS}ms before transitioning to IN_GAME`);
+      // Log removed to reduce log size - wait timer is working normally
       this.waitTimer = setTimeout(async () => {
         if (this.isLeader) {
-          this.logger.log(`[SUGAR_DADDY_SCHEDULER] Wait timer expired, transitioning to IN_GAME...`);
+          // Log removed to reduce log size - transition is working normally
           await this.transitionToInGame();
         } else {
           this.logger.warn(`[SUGAR_DADDY_SCHEDULER] Wait timer expired but not leader anymore, skipping transition`);
@@ -411,7 +411,7 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
 
       batchIndex++;
       this.logger.debug(
-        `[MOCK_BETS] Added batch ${batchIndex}: ${batch.length} bets (total added: ${addedCount}/${pendingMockBets.length})`,
+        // Log removed to reduce log size - mock bets are being added normally
       );
 
       // Stop if we've added all bets or reached max batches
@@ -458,7 +458,7 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
-      this.logger.log(`[SUGAR_DADDY_SCHEDULER] Transitioning to IN_GAME...`);
+      // Log removed to reduce log size - transition is working normally
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
       if (!activeRound) {
         this.logger.error(`[SUGAR_DADDY_SCHEDULER] ❌ No active round found when transitioning to IN_GAME`);
