@@ -847,6 +847,31 @@ export class SugarDaddyGameHandler implements IGameHandler {
             if (!updated) {
               this.stopCoefficientBroadcast();
               
+              // Round ended - settle uncashed bets before broadcasting FINISH_GAME
+              const activeRound = await this.sugarDaddyGameService.getActiveRound();
+              if (activeRound && activeRound.roundId) {
+                const roundId = activeRound.roundId;
+                const gameCodeForSettlement = gameCode || 'sugar-daddy';
+                this.logger.log(
+                  `[COEFF_BROADCAST] Round ended, settling uncashed bets: roundId=${roundId}`,
+                );
+                try {
+                  await this.sugarDaddyGameBetService.settleUncashedBets(roundId, gameCodeForSettlement);
+                  this.logger.log(
+                    `[COEFF_BROADCAST] ✅ Successfully settled bets for roundId=${roundId}`,
+                  );
+                } catch (error) {
+                  const errorMessage = error instanceof Error ? error.message : String(error);
+                  this.logger.error(
+                    `[COEFF_BROADCAST] ❌ Error settling bets for roundId=${roundId}: ${errorMessage}`,
+                  );
+                }
+              } else {
+                this.logger.warn(
+                  `[COEFF_BROADCAST] Cannot settle bets - activeRound or roundId not available`,
+                );
+              }
+              
               // Get and broadcast FINISH_GAME state immediately
               const gameState = await this.sugarDaddyGameService.getCurrentGameState();
               if (gameState) {
