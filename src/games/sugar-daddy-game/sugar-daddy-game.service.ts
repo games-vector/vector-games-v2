@@ -697,13 +697,14 @@ export class SugarDaddyGameService {
     }
 
     try {
-      // Save the current status before any reloads to preserve FINISH_GAME state
+      // Save the current status and clientsSeeds before any reloads to preserve FINISH_GAME state
       const currentStatus = this.activeRound.status;
+      const currentClientsSeeds = [...this.activeRound.clientsSeeds]; // Preserve all client seeds
       this.logger.debug(
-        `[COEFF_HISTORY] Saving status before reload: status=${currentStatus} roundId=${this.activeRound.roundId}`,
+        `[COEFF_HISTORY] Saving status before reload: status=${currentStatus} roundId=${this.activeRound.roundId} clientsSeedsCount=${currentClientsSeeds.length}`,
       );
       
-      // Reload from Redis to ensure we have latest clientsSeeds
+      // Reload from Redis to ensure we have latest data
       await this.loadActiveRoundFromRedis();
       
       if (!this.activeRound) {
@@ -715,8 +716,24 @@ export class SugarDaddyGameService {
       // This is critical because loadActiveRoundFromRedis() loads the old state from Redis
       const reloadedStatus = this.activeRound.status;
       this.activeRound.status = currentStatus;
+      
+      // CRITICAL: Preserve clientsSeeds from before reload to ensure all user seeds are available
+      // The reloaded version might have an older clientsSeeds array that doesn't include all users
+      if (currentClientsSeeds.length > 0) {
+        // Merge: keep existing seeds from reload, but add any missing ones from before reload
+        const existingUserIds = new Set(this.activeRound.clientsSeeds.map(cs => cs.userId));
+        for (const seed of currentClientsSeeds) {
+          if (!existingUserIds.has(seed.userId)) {
+            this.activeRound.clientsSeeds.push(seed);
+            this.logger.debug(
+              `[COEFF_HISTORY] Restored missing client seed for userId=${seed.userId} after reload`,
+            );
+          }
+        }
+      }
+      
       this.logger.debug(
-        `[COEFF_HISTORY] Restored status after reload: was=${reloadedStatus} restored=${currentStatus} roundId=${this.activeRound.roundId}`,
+        `[COEFF_HISTORY] Restored status after reload: was=${reloadedStatus} restored=${currentStatus} roundId=${this.activeRound.roundId} clientsSeedsCount=${this.activeRound.clientsSeeds.length}`,
       );
 
       // Get top 3 clientsSeeds (first 3 available, no sorting)
