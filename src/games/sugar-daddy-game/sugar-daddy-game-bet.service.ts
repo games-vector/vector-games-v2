@@ -898,8 +898,9 @@ export class SugarDaddyGameBetService {
         );
       }
 
-      const currentCoeff = activeRound.currentCoeff;
-      const cashedOutBet = await this.sugarDaddyGameService.cashOutBet(playerGameId, currentCoeff);
+      // For auto-cashout bets, use the bet's coeffAuto; for manual cashout, use currentCoeff
+      const cashoutCoeff = bet.coeffAuto ? parseFloat(bet.coeffAuto) : activeRound.currentCoeff;
+      const cashedOutBet = await this.sugarDaddyGameService.cashOutBet(playerGameId, cashoutCoeff);
 
       if (!cashedOutBet) {
         return createErrorResponse(
@@ -995,13 +996,18 @@ export class SugarDaddyGameBetService {
     try {
       const bets = await this.betService.listUserBets(userId, gameCode, limit);
       
+      // Filter out canceled/refunded bets - only send WON/LOST bets
+      const settledBets = bets.filter(bet => 
+        bet.status === BetStatus.WON || bet.status === BetStatus.LOST
+      );
+      
       const coefficientsHistory = await this.sugarDaddyGameService.getCoefficientsHistory(1000);
       const coeffHistoryMap = new Map<number, any>();
       coefficientsHistory.forEach((coeff) => {
         coeffHistoryMap.set(coeff.gameId, coeff);
       });
       
-      const betHistory = bets.map((bet) => {
+      const betHistory = settledBets.map((bet) => {
         const gameMetadata = bet.gameMetadata || {};
         const fairnessData = bet.fairnessData || {};
         
@@ -1050,15 +1056,21 @@ export class SugarDaddyGameBetService {
           fairness = {};
         }
         
+        // withdrawCoeff: bet's withdrawCoeff if exists, else 0
+        const withdrawCoeff = bet.withdrawCoeff ? parseFloat(bet.withdrawCoeff) : 0;
+        
+        // finishCoeff: round's final coefficient (crashCoeff) from coefficient history
+        const finishCoeff = coeffHistory?.coeff || 0;
+        
         return {
           id: bet.id,
           createdAt: bet.createdAt.toISOString(),
           gameId: gameId,
-          finishCoeff: bet.finalCoeff ? parseFloat(bet.finalCoeff) : (bet.withdrawCoeff ? parseFloat(bet.withdrawCoeff) : 0),
+          finishCoeff: finishCoeff,
           fairness: fairness,
           betAmount: parseFloat(bet.betAmount),
           win: bet.winAmount ? parseFloat(bet.winAmount) : 0,
-          withdrawCoeff: bet.withdrawCoeff ? parseFloat(bet.withdrawCoeff) : null,
+          withdrawCoeff: withdrawCoeff,
           operatorId: bet.operatorId,
           userId: bet.userId,
           currency: bet.currency,

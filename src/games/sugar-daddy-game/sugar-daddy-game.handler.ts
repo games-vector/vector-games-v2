@@ -1196,7 +1196,7 @@ export class SugarDaddyGameHandler implements IGameHandler {
       "HUF": 350.19,
       "IDR": 16443.4,
       "ILS": 3.3960999999999997,
-      "INR": 87.503,
+      "INR": 1,
       "IQD": 1310,
       "IRR": 42112.5,
       "ISK": 124.46999999999998,
