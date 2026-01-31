@@ -410,9 +410,7 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
       }
 
       batchIndex++;
-      this.logger.debug(
-        // Log removed to reduce log size - mock bets are being added normally
-      );
+      // Log removed to reduce log size - mock bets are being added normally
 
       // Stop if we've added all bets or reached max batches
       if (remainingBets.length <= batchSize || batchIndex >= numBatches) {
