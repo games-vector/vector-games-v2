@@ -153,7 +153,7 @@ import { RefundSchedulerModule } from './modules/refund-scheduler/refund-schedul
     // Common Game Gateway - handles all WebSocket connections
     // Game Modules - register their handlers with dispatcher
     SugarDaddyGameModule, // Depends on GamesModule (GameDispatcherService)
-    DiverGameModule, // Depends on GamesModule (GameDispatcherService)
+    // DiverGameModule, // Depends on GamesModule (GameDispatcherService)
     ChickenRoadGameModule, // Depends on GamesModule (GameDispatcherService)
     // API Routes
     CommonApiFunctionsModule, // /wallet/* endpoints (createMember, login, doLoginAndLaunchGame, logout)
