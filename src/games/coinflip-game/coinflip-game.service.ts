@@ -48,6 +48,36 @@ export class CoinFlipGameService {
   }
 
   /**
+   * Get game config payload for connection (betConfig, lastWin).
+   * Aligns with chicken-road: allows DB/config override in future via GameConfigModule.
+   */
+  async getGameConfigPayload(gameCode: string): Promise<{
+    betConfig: Record<string, any>;
+    coefficients: Record<string, any>;
+    lastWin: { username: string; winAmount: string; currency: string };
+  }> {
+    const defaultBetConfig = DEFAULTS.GAMES.COINFLIP.BET_CONFIG;
+    const defaultLastWin = DEFAULTS.GAMES.COINFLIP.LAST_WIN;
+    return {
+      betConfig: {
+        minBetAmount: defaultBetConfig.minBetAmount,
+        maxBetAmount: defaultBetConfig.maxBetAmount,
+        maxWinAmount: defaultBetConfig.maxWinAmount,
+        defaultBetAmount: defaultBetConfig.defaultBetAmount,
+        betPresets: defaultBetConfig.betPresets,
+        decimalPlaces: defaultBetConfig.decimalPlaces,
+        currency: defaultBetConfig.currency,
+      },
+      coefficients: {},
+      lastWin: {
+        username: defaultLastWin.DEFAULT_USERNAME,
+        winAmount: defaultLastWin.DEFAULT_WIN_AMOUNT,
+        currency: defaultLastWin.DEFAULT_CURRENCY,
+      },
+    };
+  }
+
+  /**
    * Get current game state for a user (for reconnection)
    */
   async getGameState(
@@ -127,6 +157,27 @@ export class CoinFlipGameService {
       const currencyUC = dto.currency.toUpperCase();
       const roundId = `${userId}${Date.now()}`;
       const platformTxId = uuidv4();
+
+      // Check idempotency before wallet API call (align with chicken-road)
+      const idempotencyKey = this.redisService.generateIdempotencyKey(
+        gameCode,
+        userId,
+        agentId,
+        roundId,
+        betAmountStr,
+      );
+      const idempotencyCheck = await this.redisService.checkIdempotencyKey<{
+        platformTxId: string;
+        response: CoinFlipGameStateResponse | { error: string; details?: any[] };
+        timestamp: number;
+      }>(idempotencyKey);
+
+      if (idempotencyCheck.exists && idempotencyCheck.data) {
+        this.logger.log(
+          `[IDEMPOTENCY] Duplicate bet request: user=${userId} agent=${agentId} roundId=${roundId} amount=${betAmountStr}. Returning stored response.`,
+        );
+        return idempotencyCheck.data.response;
+      }
 
       this.logger.log(
         `[BET_PLACED] user=${userId} agent=${agentId} amount=${betAmountStr} currency=${currencyUC} playMode=${dto.playMode} roundId=${roundId} txId=${platformTxId}`,
@@ -210,7 +261,7 @@ export class CoinFlipGameService {
 
       // Handle QUICK mode - instant result
       if (dto.playMode === PlayMode.QUICK) {
-        return await this.handleQuickMode(
+        const quickResponse = await this.handleQuickMode(
           userId,
           agentId,
           gameCode,
@@ -221,6 +272,12 @@ export class CoinFlipGameService {
           roundId,
           fairnessData,
         );
+        await this.redisService.setIdempotencyKey(idempotencyKey, {
+          platformTxId,
+          response: quickResponse,
+          timestamp: Date.now(),
+        });
+        return quickResponse;
       }
 
       // Handle ROUNDS mode - create session
@@ -253,7 +310,13 @@ export class CoinFlipGameService {
         `[ROUNDS_SESSION_CREATED] user=${userId} agent=${agentId} roundId=${roundId}`,
       );
 
-      return this.buildGameStateResponse(session, false);
+      const roundsResponse = this.buildGameStateResponse(session, false);
+      await this.redisService.setIdempotencyKey(idempotencyKey, {
+        platformTxId,
+        response: roundsResponse,
+        timestamp: Date.now(),
+      });
+      return roundsResponse;
 
     } finally {
       await this.redisService.releaseLock(lockKey);
@@ -290,7 +353,7 @@ export class CoinFlipGameService {
 
     // Settle bet
     try {
-      await this.walletService.settleBet({
+      const settleResult = await this.walletService.settleBet({
         agentId,
         platformTxId,
         userId,
@@ -312,6 +375,7 @@ export class CoinFlipGameService {
         externalPlatformTxId: platformTxId,
         winAmount: winAmount.toFixed(COINFLIP_CONSTANTS.DECIMAL_PLACES),
         settledAt: new Date(),
+        balanceAfterSettlement: settleResult.balance ? String(settleResult.balance) : undefined,
         updatedBy: userId,
         finalCoeff: isWin ? COINFLIP_CONSTANTS.BASE_MULTIPLIER.toString() : '0',
         withdrawCoeff: isWin ? COINFLIP_CONSTANTS.BASE_MULTIPLIER.toString() : '0',
@@ -407,7 +471,7 @@ export class CoinFlipGameService {
       session.winAmount = 0;
 
       try {
-        await this.walletService.settleBet({
+        const settleResult = await this.walletService.settleBet({
           agentId: session.agentId,
           platformTxId: session.platformBetTxId,
           userId,
@@ -428,6 +492,7 @@ export class CoinFlipGameService {
           externalPlatformTxId: session.platformBetTxId,
           winAmount: '0',
           settledAt: new Date(),
+          balanceAfterSettlement: settleResult.balance ? String(settleResult.balance) : undefined,
           updatedBy: userId,
           finalCoeff: '0',
           withdrawCoeff: '0',
@@ -460,7 +525,7 @@ export class CoinFlipGameService {
       session.isActive = false;
 
       try {
-        await this.walletService.settleBet({
+        const settleResult = await this.walletService.settleBet({
           agentId: session.agentId,
           platformTxId: session.platformBetTxId,
           userId,
@@ -481,6 +546,7 @@ export class CoinFlipGameService {
           externalPlatformTxId: session.platformBetTxId,
           winAmount: session.winAmount.toFixed(COINFLIP_CONSTANTS.DECIMAL_PLACES),
           settledAt: new Date(),
+          balanceAfterSettlement: settleResult.balance ? String(settleResult.balance) : undefined,
           updatedBy: userId,
           finalCoeff: session.currentCoeff,
           withdrawCoeff: session.currentCoeff,
@@ -541,7 +607,7 @@ export class CoinFlipGameService {
     );
 
     try {
-      await this.walletService.settleBet({
+      const settleResult = await this.walletService.settleBet({
         agentId: session.agentId,
         platformTxId: session.platformBetTxId,
         userId,
@@ -562,6 +628,7 @@ export class CoinFlipGameService {
         externalPlatformTxId: session.platformBetTxId,
         winAmount: winAmount.toFixed(COINFLIP_CONSTANTS.DECIMAL_PLACES),
         settledAt: new Date(),
+        balanceAfterSettlement: settleResult.balance ? String(settleResult.balance) : undefined,
         updatedBy: userId,
         finalCoeff: session.currentCoeff,
         withdrawCoeff: session.currentCoeff,
@@ -641,21 +708,36 @@ export class CoinFlipGameService {
     return bets.map((bet) => {
       const betAmount = parseFloat(bet.betAmount || '0');
       const winAmount = parseFloat(bet.winAmount || '0');
+      const withdrawCoeff = bet.withdrawCoeff
+        ? parseFloat(bet.withdrawCoeff)
+        : (betAmount > 0 && winAmount > 0 ? winAmount / betAmount : 0);
+      const gameMetaCoeff = bet.finalCoeff
+        ? bet.finalCoeff
+        : (betAmount > 0 && winAmount > 0 ? (winAmount / betAmount).toFixed(2) : '0');
+      // Fallback fairness when missing (align with chicken-road)
+      const fairness = bet.fairnessData ?? {
+        decimal: '',
+        clientSeed: '',
+        serverSeed: '',
+        combinedHash: '',
+        hashedServerSeed: '',
+        nonce: 0,
+      };
 
       return {
         id: bet.id,
         createdAt: bet.createdAt.toISOString(),
         gameId: 0,
         finishCoeff: 0,
-        fairness: bet.fairnessData,
+        fairness,
         betAmount,
         win: winAmount,
-        withdrawCoeff: bet.withdrawCoeff ? parseFloat(bet.withdrawCoeff) : 0,
+        withdrawCoeff,
         operatorId: bet.operatorId || agentId,
         userId: bet.userId,
         currency: bet.currency,
         gameMeta: {
-          coeff: bet.finalCoeff,
+          coeff: gameMetaCoeff,
           playMode: bet.gameMetadata?.playMode,
         },
       };
@@ -691,7 +773,8 @@ export class CoinFlipGameService {
 
   private async saveSession(session: CoinFlipGameSession): Promise<void> {
     const key = this.getRedisKey(session.userId, session.agentId, session.gameCode);
-    await this.redisService.set(key, session, DEFAULTS.GAMES.COINFLIP.SESSION_TTL);
+    const ttl = await this.redisService.getSessionTTL(session.gameCode);
+    await this.redisService.set(key, session, ttl);
   }
 
   private async deleteSession(

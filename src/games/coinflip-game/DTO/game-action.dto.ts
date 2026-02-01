@@ -7,6 +7,8 @@ export enum GameAction {
   BET = 'bet',
   STEP = 'step',
   WITHDRAW = 'withdraw',
+  CASHOUT = 'cashout',
+  GET_GAME_SESSION = 'get-game-session',
   GET_GAME_CONFIG = 'get-game-config',
   GET_GAME_STATE = 'get-game-state',
   GET_GAME_SEEDS = 'get-game-seeds',
