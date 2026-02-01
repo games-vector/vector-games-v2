@@ -13,16 +13,30 @@ RUN npm config set fetch-retries 5 && \
 RUN echo "@games-vector:registry=https://npm.pkg.github.com" > .npmrc
 
 # Set up GitHub Packages authentication
-# GITHUB_TOKEN should be passed as build arg
+# GITHUB_TOKEN should be passed as build arg, or .npmrc will be copied if it exists
 ARG GITHUB_TOKEN
 RUN if [ -n "$GITHUB_TOKEN" ]; then \
       echo "//npm.pkg.github.com/:_authToken=$GITHUB_TOKEN" >> .npmrc; \
     else \
-      echo "Warning: GITHUB_TOKEN not provided. Package installation may fail."; \
+      echo "Warning: GITHUB_TOKEN not provided. Will try to use .npmrc from build context."; \
     fi
 
 # Copy package files (from vector-games-v2 directory)
 COPY vector-games-v2/package*.json ./
+
+# Copy .npmrc from build context if GITHUB_TOKEN wasn't provided
+# This allows using local .npmrc file during build
+COPY vector-games-v2/.npmrc* ./
+RUN if [ -z "$GITHUB_TOKEN" ]; then \
+      if [ -f vector-games-v2/.npmrc ]; then \
+        echo "Using .npmrc from build context"; \
+        cat vector-games-v2/.npmrc >> .npmrc; \
+      else \
+        echo "Error: No GITHUB_TOKEN provided and no .npmrc found in build context"; \
+        echo "Please either: 1) Set GITHUB_TOKEN build arg, or 2) Ensure .npmrc exists in vector-games-v2/"; \
+        exit 1; \
+      fi; \
+    fi
 
 # Install dependencies (will fetch @games-vector/game-core from GitHub Packages)
 RUN npm ci --legacy-peer-deps || npm install --legacy-peer-deps
@@ -49,17 +63,31 @@ RUN npm config set fetch-retries 5 && \
 RUN echo "@games-vector:registry=https://npm.pkg.github.com" > .npmrc
 
 # Set up GitHub Packages authentication
-# GITHUB_TOKEN should be passed as build arg
+# GITHUB_TOKEN should be passed as build arg, or .npmrc will be copied if it exists
 ARG GITHUB_TOKEN
 RUN if [ -n "$GITHUB_TOKEN" ]; then \
       echo "//npm.pkg.github.com/:_authToken=$GITHUB_TOKEN" >> .npmrc; \
     else \
-      echo "Warning: GITHUB_TOKEN not provided. Package installation may fail."; \
+      echo "Warning: GITHUB_TOKEN not provided. Will try to use .npmrc from build context."; \
     fi
 
 # Copy built files
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
+
+# Copy .npmrc from build context if GITHUB_TOKEN wasn't provided
+# This allows using local .npmrc file during build
+COPY vector-games-v2/.npmrc* ./
+RUN if [ -z "$GITHUB_TOKEN" ]; then \
+      if [ -f vector-games-v2/.npmrc ]; then \
+        echo "Using .npmrc from build context"; \
+        cat vector-games-v2/.npmrc >> .npmrc; \
+      else \
+        echo "Error: No GITHUB_TOKEN provided and no .npmrc found in build context"; \
+        echo "Please either: 1) Set GITHUB_TOKEN build arg, or 2) Ensure .npmrc exists in vector-games-v2/"; \
+        exit 1; \
+      fi; \
+    fi
 
 # Install production dependencies only
 RUN npm ci --legacy-peer-deps --omit=dev || npm ci --legacy-peer-deps --omit=dev && npm cache clean --force
