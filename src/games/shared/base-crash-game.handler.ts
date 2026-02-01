@@ -968,6 +968,11 @@ export abstract class BaseCrashGameHandler implements IGameHandler {
         try {
           const gameState = await this.gameService.getCurrentGameState();
           if (gameState) {
+            // Skip broadcasting FINISH_GAME state in periodic interval to reduce redundant broadcasts
+            // FINISH_GAME is already broadcasted explicitly by coefficient broadcast and scheduler's endRound
+            if (gameState.status === GameStatus.FINISH_GAME) {
+              return;
+            }
             this.logger.debug(
               `[GAME_STATE_BROADCAST] Periodic broadcast: status=${gameState.status} roundId=${gameState.roundId} betsCount=${gameState.bets.values.length}`,
             );

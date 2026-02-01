@@ -32,24 +32,17 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     try {
-      this.logger.log(`[SUGAR_DADDY_SCHEDULER] ✅ Initializing with podId=${this.POD_ID}`);
       this.sugarDaddyGameHandler.setOnRoundEndCallback(() => {
         this.onRoundEnded();
       });
       
       setTimeout(() => {
-        this.logger.log(`[SUGAR_DADDY_SCHEDULER] Starting leader election in 2 seconds...`);
         this.startLeaderElection().catch((error) => {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          this.logger.error(`[SUGAR_DADDY_SCHEDULER] ❌ Error in startLeaderElection: ${errorMessage}`);
+          this.logger.error(`[LEADER_ELECTION] Error: ${(error as Error).message}`);
         });
       }, 2000);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      this.logger.error(
-        `[SUGAR_DADDY_SCHEDULER] ❌ Error in onModuleInit: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
-      );
+      this.logger.error(`[SCHEDULER] Init error: ${(error as Error).message}`);
     }
   }
 
@@ -71,33 +64,23 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
    */
   private async startLeaderElection(): Promise<void> {
     try {
-      this.logger.log(`[LEADER_ELECTION] Attempting to acquire leader lock for pod ${this.POD_ID}`);
       const acquired = await this.sugarDaddyGameService.acquireLeaderLock(this.POD_ID);
       
       if (acquired) {
         this.isLeader = true;
-        this.logger.log(`[LEADER_ELECTION] ✅ Pod ${this.POD_ID} is now the leader - starting game loop`);
         this.startGameLoop();
         this.startLeaderRenewal();
       } else {
-        this.logger.warn(`[LEADER_ELECTION] ❌ Pod ${this.POD_ID} failed to acquire leader lock - another pod may be leader. Retrying in 5 seconds...`);
         this.leaderElectionTimer = setTimeout(() => {
           this.startLeaderElection().catch((error) => {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            this.logger.error(`[LEADER_ELECTION] ❌ Error in retry: ${errorMessage}`);
+            this.logger.error(`[LEADER_ELECTION] Retry error: ${(error as Error).message}`);
           });
         }, 5000);
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      this.logger.error(
-        `[LEADER_ELECTION] ❌ Error during leader election: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
-      );
-      // Retry after 5 seconds even on error
       this.leaderElectionTimer = setTimeout(() => {
         this.startLeaderElection().catch((err) => {
-          this.logger.error(`[LEADER_ELECTION] ❌ Error in error retry: ${err instanceof Error ? err.message : String(err)}`);
+          this.logger.error(`[LEADER_ELECTION] Error retry: ${(err as Error).message}`);
         });
       }, 5000);
     }
@@ -115,7 +98,6 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
       if (this.isLeader) {
         const stillLeader = await this.sugarDaddyGameService.renewLeaderLock(this.POD_ID);
         if (!stillLeader) {
-          this.logger.warn(`[LEADER_ELECTION] Pod ${this.POD_ID} lost leadership - stopping game loop`);
           this.isLeader = false;
           this.stopGameLoop();
           this.startLeaderElection();
@@ -142,17 +124,10 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
    * Start the game loop (only if leader)
    */
   private startGameLoop(): void {
-    if (this.isRunning) {
-      this.logger.warn(`[SUGAR_DADDY_SCHEDULER] Game loop already running, skipping start`);
+    if (this.isRunning || !this.isLeader) {
       return;
     }
 
-    if (!this.isLeader) {
-      this.logger.warn(`[SUGAR_DADDY_SCHEDULER] Cannot start game loop - not the leader (podId=${this.POD_ID})`);
-      return;
-    }
-
-    this.logger.log(`[SUGAR_DADDY_SCHEDULER] ✅ Starting game loop (podId=${this.POD_ID})`);
     this.isRunning = true;
     this.startNewRound();
   }
@@ -161,6 +136,13 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
    * Stop the game loop
    */
   private stopGameLoop(): void {
+    this.clearAllTimers();
+    this.isRunning = false;
+    this.sugarDaddyGameHandler.stopCoefficientBroadcast();
+    this.sugarDaddyGameHandler.stopGameStateBroadcast();
+  }
+
+  private clearAllTimers(): void {
     if (this.waitTimer) {
       clearTimeout(this.waitTimer);
       this.waitTimer = null;
@@ -173,8 +155,18 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
     }
-    this.isRunning = false;
-    this.sugarDaddyGameHandler.stopCoefficientBroadcast();
+    if (this.leaderElectionTimer) {
+      clearTimeout(this.leaderElectionTimer);
+      this.leaderElectionTimer = null;
+    }
+    if (this.leaderRenewTimer) {
+      clearInterval(this.leaderRenewTimer);
+      this.leaderRenewTimer = null;
+    }
+    if (this.mockBetsAdditionTimer) {
+      clearInterval(this.mockBetsAdditionTimer);
+      this.mockBetsAdditionTimer = null;
+    }
   }
 
   private onRoundEnded(): void {
@@ -195,155 +187,93 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
 
   private async startNewRound(): Promise<void> {
     if (!this.isLeader) {
-      this.logger.warn(`[SUGAR_DADDY_SCHEDULER] Cannot start new round - not the leader (podId=${this.POD_ID})`);
       return;
     }
 
-    this.logger.log(`[SUGAR_DADDY_SCHEDULER] Starting new round (podId=${this.POD_ID}, isLeader=${this.isLeader})`);
     try {
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
       if (activeRound) {
-        this.logger.log(`[SUGAR_DADDY_SCHEDULER] Found existing active round: roundId=${activeRound.roundId} status=${activeRound.status}`);
         if (activeRound.status === GameStatus.FINISH_GAME) {
-          this.logger.log(`[SUGAR_DADDY_SCHEDULER] Clearing finished round`);
           await this.sugarDaddyGameService.clearActiveRound();
         } else {
-          this.logger.warn('[SUGAR_DADDY_SCHEDULER] Previous round still active, forcing end');
           await this.endRound();
           await new Promise(resolve => setTimeout(resolve, 1000));
           await this.sugarDaddyGameService.clearActiveRound();
         }
-      } else {
-        this.logger.log(`[SUGAR_DADDY_SCHEDULER] No existing active round found, creating new one`);
       }
 
-      this.logger.log(`[SUGAR_DADDY_SCHEDULER] Calling startNewRound()...`);
       const round = await this.sugarDaddyGameService.startNewRound();
-      this.logger.log(`[SUGAR_DADDY_SCHEDULER] ✅ New round created: roundId=${round.roundId} gameUUID=${round.gameUUID} crashCoeff=${round.crashCoeff}`);
 
-      this.logger.log(`[SUGAR_DADDY_SCHEDULER] Processing pending bets...`);
       const pendingBetsResult = await this.sugarDaddyGameBetService.processPendingBets(
         round.roundId,
         round.gameUUID,
       );
       
       if (pendingBetsResult.errors.length > 0) {
-        this.logger.warn(
-          `[SUGAR_DADDY_SCHEDULER] Pending bet errors: ${JSON.stringify(pendingBetsResult.errors)}`,
-        );
-      } else {
-        this.logger.log(`[SUGAR_DADDY_SCHEDULER] ✅ Pending bets processed: ${pendingBetsResult.processed} processed, ${pendingBetsResult.errors.length} errors`);
+        this.logger.warn(`[SCHEDULER] Pending bet errors: ${pendingBetsResult.errors.length}`);
       }
 
-      // Log removed to reduce log size - getting game state is working normally
       const gameState = await this.sugarDaddyGameService.getCurrentGameState();
       if (gameState) {
-        // Log removed to reduce log size - game state retrieved successfully
         this.sugarDaddyGameHandler.broadcastGameStateChange(this.GAME_CODE, gameState);
-      } else {
-        this.logger.error(`[SUGAR_DADDY_SCHEDULER] ❌ Failed to get game state after creating round!`);
       }
 
-      // Start gradual mock bet addition during WAIT_GAME
       this.startGradualMockBetsAddition();
-
-      this.logger.log(`[SUGAR_DADDY_SCHEDULER] Starting game state broadcast...`);
       this.sugarDaddyGameHandler.startGameStateBroadcast(this.GAME_CODE);
 
       if (this.waitTimer) {
         clearTimeout(this.waitTimer);
       }
-      // Log removed to reduce log size - wait timer is working normally
+      
       this.waitTimer = setTimeout(async () => {
         if (this.isLeader) {
-          // Log removed to reduce log size - transition is working normally
           await this.transitionToInGame();
-        } else {
-          this.logger.warn(`[SUGAR_DADDY_SCHEDULER] Wait timer expired but not leader anymore, skipping transition`);
         }
       }, this.WAIT_TIME_MS);
-      
-      this.logger.log(`[SUGAR_DADDY_SCHEDULER] ✅ New round setup complete`);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      this.logger.error(
-        `[SUGAR_DADDY_SCHEDULER] ❌ Error starting new round: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
-      );
-      // Retry after 5 seconds if there's an error (only if still leader and running)
+      this.logger.error(`[SCHEDULER] Error starting round: ${(error as Error).message}`);
       if (this.isLeader && this.isRunning) {
-        // Clear any existing retry timer
         if (this.retryTimer) {
           clearTimeout(this.retryTimer);
         }
-        this.logger.log(`[SUGAR_DADDY_SCHEDULER] Retrying in 5 seconds...`);
         this.retryTimer = setTimeout(() => {
           this.retryTimer = null;
           if (this.isLeader && this.isRunning) {
             this.startNewRound();
           }
         }, 5000);
-      } else {
-        this.logger.warn(`[SUGAR_DADDY_SCHEDULER] Not retrying - isLeader=${this.isLeader} isRunning=${this.isRunning}`);
       }
     }
   }
 
   private async endRound(): Promise<void> {
     if (!this.isLeader) {
-      this.logger.debug(`[SCHEDULER_END_ROUND] Not the leader, skipping endRound`);
       return;
     }
 
     try {
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
-      if (!activeRound) {
-        this.logger.warn(`[SCHEDULER_END_ROUND] No active round found`);
+      if (!activeRound || activeRound.status === GameStatus.FINISH_GAME) {
         return;
       }
-
-      if (activeRound.status === GameStatus.FINISH_GAME) {
-        this.logger.log(`[SCHEDULER_END_ROUND] Round already in FINISH_GAME state, skipping`);
-        return;
-      }
-
-      this.logger.log(
-        `[SCHEDULER_END_ROUND] Ending round: roundId=${activeRound.roundId} currentStatus=${activeRound.status}`,
-      );
 
       this.sugarDaddyGameHandler.stopCoefficientBroadcast();
 
       const roundId = activeRound.roundId;
       await this.sugarDaddyGameService.endRound();
 
-      await this.sugarDaddyGameBetService.settleUncashedBets(
-        roundId,
-        this.GAME_CODE,
-      );
+      await this.sugarDaddyGameBetService.settleUncashedBets(roundId, this.GAME_CODE);
 
       const gameState = await this.sugarDaddyGameService.getCurrentGameState();
       if (gameState) {
-        this.logger.log(
-          `[SCHEDULER_END_ROUND] Broadcasting FINISH_GAME state: roundId=${gameState.roundId} status=${gameState.status} crashCoeff=${gameState.coeffCrash || 'N/A'} betsCount=${gameState.bets.values.length}`,
-        );
         this.sugarDaddyGameHandler.broadcastGameStateChange(this.GAME_CODE, gameState);
-        this.logger.log(
-          `[SCHEDULER_END_ROUND] ✅ FINISH_GAME state broadcasted successfully`,
-        );
-      } else {
-        this.logger.error(`[SCHEDULER_END_ROUND] ❌ Failed to get game state after endRound`);
       }
     } catch (error) {
-      this.logger.error(`[SCHEDULER_END_ROUND] Error ending round: ${error.message}`, error.stack);
+      this.logger.error(`[END_ROUND] Error: ${(error as Error).message}`);
     }
   }
 
-  /**
-   * Gradually add mock bets during WAIT_GAME phase
-   * Adds 3-5 batches of 2-8 bets each, with 1.5-2.5 second intervals
-   */
   private startGradualMockBetsAddition(): void {
-    // Clear any existing timer
     if (this.mockBetsAdditionTimer) {
       clearInterval(this.mockBetsAdditionTimer);
       this.mockBetsAdditionTimer = null;
@@ -351,74 +281,46 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
 
     const pendingMockBets = this.sugarDaddyGameService.getPendingMockBets();
     if (pendingMockBets.length === 0) {
-      this.logger.debug(`[MOCK_BETS] No pending mock bets to add gradually`);
       return;
     }
 
-    // Determine number of batches (3-5)
-    const numBatches = Math.floor(Math.random() * 3) + 3; // 3-5 batches
-    const betsPerBatch = Math.ceil(pendingMockBets.length / numBatches);
-    
+    const numBatches = Math.floor(Math.random() * 3) + 3;
     let batchIndex = 0;
-    let addedCount = 0;
 
     const addBatch = async () => {
       if (!this.isLeader) {
-        this.logger.debug(`[MOCK_BETS] Not leader, stopping gradual addition`);
-        if (this.mockBetsAdditionTimer) {
-          clearInterval(this.mockBetsAdditionTimer);
-          this.mockBetsAdditionTimer = null;
-        }
+        this.clearIntervalTimer(this.mockBetsAdditionTimer);
         return;
       }
 
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
       if (!activeRound || activeRound.status !== GameStatus.WAIT_GAME) {
-        this.logger.debug(`[MOCK_BETS] Round not in WAIT_GAME, stopping gradual addition`);
-        if (this.mockBetsAdditionTimer) {
-          clearInterval(this.mockBetsAdditionTimer);
-          this.mockBetsAdditionTimer = null;
-        }
+        this.clearIntervalTimer(this.mockBetsAdditionTimer);
         return;
       }
 
       const remainingBets = this.sugarDaddyGameService.getPendingMockBets();
       if (remainingBets.length === 0) {
-        this.logger.debug(`[MOCK_BETS] All mock bets added, stopping gradual addition`);
-        if (this.mockBetsAdditionTimer) {
-          clearInterval(this.mockBetsAdditionTimer);
-          this.mockBetsAdditionTimer = null;
-        }
+        this.clearIntervalTimer(this.mockBetsAdditionTimer);
         return;
       }
 
-      // Determine batch size (2-8 bets, or remaining if less)
-      const batchSize = Math.min(
-        Math.floor(Math.random() * 7) + 2, // 2-8 bets
-        remainingBets.length
-      );
-
+      const batchSize = Math.min(Math.floor(Math.random() * 7) + 2, remainingBets.length);
       const batch = remainingBets.slice(0, batchSize);
+      
       await this.sugarDaddyGameService.addMockBetsBatch(batch);
       this.sugarDaddyGameService.removePendingMockBets(batch);
-      addedCount += batch.length;
 
-      // Broadcast updated game state
       const gameState = await this.sugarDaddyGameService.getCurrentGameState();
       if (gameState) {
         this.sugarDaddyGameHandler.broadcastGameStateChange(this.GAME_CODE, gameState);
       }
 
       batchIndex++;
-      // Log removed to reduce log size - mock bets are being added normally
 
-      // Stop if we've added all bets or reached max batches
       if (remainingBets.length <= batchSize || batchIndex >= numBatches) {
-        if (this.mockBetsAdditionTimer) {
-          clearInterval(this.mockBetsAdditionTimer);
-          this.mockBetsAdditionTimer = null;
-        }
-        // Add any remaining bets
+        this.clearIntervalTimer(this.mockBetsAdditionTimer);
+        
         const finalRemaining = this.sugarDaddyGameService.getPendingMockBets();
         if (finalRemaining.length > 0) {
           await this.sugarDaddyGameService.addMockBetsBatch(finalRemaining);
@@ -431,63 +333,47 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
       }
     };
 
-    // Start adding batches with random intervals (1.5-2.5 seconds)
-    const addFirstBatch = () => {
+    setTimeout(() => {
       addBatch().catch((error) => {
-        this.logger.error(`[MOCK_BETS] Error adding mock bets batch: ${error.message}`);
+        this.logger.error(`[MOCK_BETS] Error: ${(error as Error).message}`);
       });
-    };
+    }, 500);
 
-    // Add first batch immediately
-    setTimeout(addFirstBatch, 500); // Small delay to let round settle
-
-    // Schedule subsequent batches
     this.mockBetsAdditionTimer = setInterval(() => {
       addBatch().catch((error) => {
-        this.logger.error(`[MOCK_BETS] Error adding mock bets batch: ${error.message}`);
+        this.logger.error(`[MOCK_BETS] Error: ${(error as Error).message}`);
       });
-    }, 1500 + Math.random() * 1000); // 1.5-2.5 seconds
+    }, 1500 + Math.random() * 1000);
+  }
+
+  private clearIntervalTimer(timer: NodeJS.Timeout | null): void {
+    if (timer) {
+      clearInterval(timer);
+      this.mockBetsAdditionTimer = null;
+    }
   }
 
   private async transitionToInGame(): Promise<void> {
     if (!this.isLeader) {
-      this.logger.warn(`[SUGAR_DADDY_SCHEDULER] Cannot transition to IN_GAME - not the leader`);
       return;
     }
 
     try {
-      // Log removed to reduce log size - transition is working normally
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
-      if (!activeRound) {
-        this.logger.error(`[SUGAR_DADDY_SCHEDULER] ❌ No active round found when transitioning to IN_GAME`);
-        return;
-      }
-      
-      if (activeRound.status !== GameStatus.WAIT_GAME) {
-        this.logger.warn(`[SUGAR_DADDY_SCHEDULER] Round is not in WAIT_GAME status (current: ${activeRound.status}), skipping transition`);
+      if (!activeRound || activeRound.status !== GameStatus.WAIT_GAME) {
         return;
       }
 
-      this.logger.log(`[SUGAR_DADDY_SCHEDULER] Starting game (roundId=${activeRound.roundId})...`);
       await this.sugarDaddyGameService.startGame();
-      this.logger.log(`[SUGAR_DADDY_SCHEDULER] ✅ Game started successfully`);
 
       const gameState = await this.sugarDaddyGameService.getCurrentGameState();
       if (gameState) {
         this.sugarDaddyGameHandler.broadcastGameStateChange(this.GAME_CODE, gameState);
-      } else {
-        this.logger.error(`[SUGAR_DADDY_SCHEDULER] ❌ Failed to get game state after starting game`);
       }
 
-      this.logger.log(`[SUGAR_DADDY_SCHEDULER] Starting coefficient broadcast...`);
       this.sugarDaddyGameHandler.startCoefficientBroadcast(this.GAME_CODE);
-      this.logger.log(`[SUGAR_DADDY_SCHEDULER] ✅ Transition to IN_GAME complete`);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      this.logger.error(
-        `[SUGAR_DADDY_SCHEDULER] ❌ Error transitioning to IN_GAME: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
-      );
+      this.logger.error(`[TRANSITION] Error: ${(error as Error).message}`);
     }
   }
 }
