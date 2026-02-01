@@ -33,7 +33,7 @@
     "@nestjs/swagger": "^11.2.1",
     "@nestjs/typeorm": "^11.0.0",
     "@nestjs/websockets": "^11.1.6",
-    "@games-vector/game-core": "^1.0.0",
+    "@games-vector/game-core": "git+https://github.com/games-vector/game-platform-core.git",
     "@socket.io/redis-adapter": "^8.2.0",
     "axios": "^1.13.2",
     "bcrypt": "^5.1.1",

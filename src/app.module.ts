@@ -1,4 +1,4 @@
-import { Logger, Module, OnModuleInit, forwardRef } from '@nestjs/common';
+import { Logger, Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
 
@@ -26,6 +26,7 @@ import { CommonGameGateway } from './gateway/common-game.gateway';
 import { SugarDaddyGameModule } from './games/sugar-daddy-game/sugar-daddy-game.module';
 import { DiverGameModule } from './games/diver-game/diver-game.module';
 import { ChickenRoadGameModule } from './games/chicken-road-game/chicken-road-game.module';
+import { CoinFlipGameModule } from './games/coinflip-game/coinflip-game.module';
 import { CommonApiFunctionsModule } from './routes/common-api-functions/common-api-functions.module';
 import { GameApiRoutesModule } from './routes/game-api-routes/game-api-routes.module';
 import { BetCleanupSchedulerModule } from './modules/bet-cleanup/bet-cleanup-scheduler.module';
@@ -88,14 +89,14 @@ import { RefundSchedulerModule } from './modules/refund-scheduler/refund-schedul
         return cfgObj;
       },
     }),
-    TypeOrmModule.forFeature([Game]),
-    // Package modules - using forwardRef to ensure TypeORM root is fully initialized
-    forwardRef(() => UserModule),
-    forwardRef(() => AgentsModule),
-    forwardRef(() => BetConfigModule),
-    forwardRef(() => WalletConfigModule),
-    forwardRef(() => WalletAuditModule),
-    forwardRef(() => WalletRetryModule),
+    TypeOrmModule.forFeature([User, Agents, Bet, WalletAudit, WalletRetryJob, Game]),
+    // Package modules - import after TypeORM entities are registered
+    UserModule,
+    AgentsModule,
+    BetConfigModule,
+    WalletConfigModule,
+    WalletAuditModule,
+    WalletRetryModule,
     // JWT configuration - loaded from game config table (platform config)
     // Falls back to environment variable, then to defaults
     // To configure: INSERT INTO game_config_platform (`key`, `value`) VALUES ('jwt.expiresIn', '24h');
@@ -155,6 +156,7 @@ import { RefundSchedulerModule } from './modules/refund-scheduler/refund-schedul
     SugarDaddyGameModule, // Depends on GamesModule (GameDispatcherService)
     DiverGameModule, // Depends on GamesModule (GameDispatcherService)
     ChickenRoadGameModule, // Depends on GamesModule (GameDispatcherService)
+    CoinFlipGameModule, // Depends on GamesModule (GameDispatcherService)
     // API Routes
     CommonApiFunctionsModule, // /wallet/* endpoints (createMember, login, doLoginAndLaunchGame, logout)
     GameApiRoutesModule, // /api/* endpoints (auth, games, online-counter)
