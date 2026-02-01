@@ -634,21 +634,36 @@ export class SugarDaddyGameService {
       const preservedState = {
         status: this.activeRound.status,
         clientsSeeds: [...this.activeRound.clientsSeeds],
+        bets: new Map(this.activeRound.bets), // Preserve bets data for winner calculation
+        crashCoeff: this.activeRound.crashCoeff,
+        roundId: this.activeRound.roundId,
       };
       
       await this.loadActiveRoundFromRedis();
       
       if (!this.activeRound) {
+        this.logger.error(`[STORE_FINISHED_ROUND] activeRound is null after reload from Redis`);
         return;
       }
       
       this.activeRound.status = preservedState.status;
+      this.activeRound.crashCoeff = preservedState.crashCoeff;
       
       if (preservedState.clientsSeeds.length > 0) {
         const existingUserIds = new Set(this.activeRound.clientsSeeds.map(cs => cs.userId));
         for (const seed of preservedState.clientsSeeds) {
           if (!existingUserIds.has(seed.userId)) {
             this.activeRound.clientsSeeds.push(seed);
+          }
+        }
+      }
+      
+      if (preservedState.bets.size > 0) {
+        for (const [playerGameId, bet] of preservedState.bets.entries()) {
+          if (!this.activeRound.bets.has(playerGameId)) {
+            this.activeRound.bets.set(playerGameId, bet);
+          } else {
+            this.activeRound.bets.set(playerGameId, bet);
           }
         }
       }
@@ -682,14 +697,17 @@ export class SugarDaddyGameService {
     }
   }
 
-  private buildTopClientsSeeds(): Array<{ userId: string; seed: string; nickname: string; gameAvatar: number | null }> {
+  buildTopClientsSeeds(): Array<{ userId: string; seed: string; nickname: string; gameAvatar: number | null }> {
     if (!this.activeRound) return [];
 
     const allWinners: Array<{ bet: BetData; winAmount: number }> = [];
     
     for (const bet of this.activeRound.bets.values()) {
       if (bet.coeffWin && bet.winAmount) {
-        allWinners.push({ bet, winAmount: parseFloat(bet.winAmount || '0') });
+        const winAmount = parseFloat(bet.winAmount || '0');
+        if (winAmount > 0) {
+          allWinners.push({ bet, winAmount });
+        }
       }
     }
     
@@ -697,18 +715,39 @@ export class SugarDaddyGameService {
     const top3Winners = allWinners.slice(0, 3);
     
     const topClientsSeeds: Array<{ userId: string; seed: string; nickname: string; gameAvatar: number | null }> = [];
+    const usedUserIds = new Set<string>();
     
     for (const { bet } of top3Winners) {
       const existingSeed = this.activeRound.clientsSeeds.find(cs => cs.userId === bet.userId);
-      topClientsSeeds.push({
-        userId: bet.userId,
-        seed: existingSeed?.seed || crypto.randomBytes(8).toString('hex'),
-        nickname: bet.nickname || `user${bet.userId}`,
-        gameAvatar: bet.gameAvatar || null,
-      });
+      if (existingSeed) {
+        topClientsSeeds.push(existingSeed);
+        usedUserIds.add(bet.userId);
+      } else {
+        topClientsSeeds.push({
+          userId: bet.userId,
+          seed: crypto.randomBytes(8).toString('hex'),
+          nickname: bet.nickname || `user${bet.userId}`,
+          gameAvatar: bet.gameAvatar || null,
+        });
+        usedUserIds.add(bet.userId);
+      }
     }
     
-    return topClientsSeeds.length > 0 ? topClientsSeeds : this.getTopClientsSeeds(3);
+    if (topClientsSeeds.length < 3 && this.activeRound.clientsSeeds.length > 0) {
+      for (const clientSeed of this.activeRound.clientsSeeds) {
+        if (topClientsSeeds.length >= 3) break;
+        if (!usedUserIds.has(clientSeed.userId)) {
+          topClientsSeeds.push(clientSeed);
+          usedUserIds.add(clientSeed.userId);
+        }
+      }
+    }
+    
+    if (topClientsSeeds.length === 0) {
+      return this.getTopClientsSeeds(3);
+    }
+    
+    return topClientsSeeds;
   }
 
   private calculateCombinedHash(): string {

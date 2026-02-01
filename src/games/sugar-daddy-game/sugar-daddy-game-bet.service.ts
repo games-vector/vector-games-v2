@@ -778,7 +778,7 @@ export class SugarDaddyGameBetService {
               ? decimalValue.toExponential() 
               : decimalValue.toString();
 
-            const topClientsSeeds = activeRound.clientsSeeds ? activeRound.clientsSeeds.slice(0, 3) : [];
+            const topClientsSeeds = this.sugarDaddyGameService.buildTopClientsSeeds();
 
             return {
               decimal,
@@ -904,7 +904,7 @@ export class SugarDaddyGameBetService {
             ? decimalValue.toExponential() 
             : decimalValue.toString();
 
-          const topClientsSeeds = activeRound.clientsSeeds ? activeRound.clientsSeeds.slice(0, 3) : [];
+          const topClientsSeeds = this.sugarDaddyGameService.buildTopClientsSeeds();
 
           return {
             decimal,
@@ -1205,7 +1205,7 @@ export class SugarDaddyGameBetService {
         let fairness: any = {
           serverSeed: serverSeed,
           hashedServerSeed: hashedServerSeed,
-          clientsSeeds: coeffHistory?.clientsSeeds || [],
+          clientsSeeds: coeffHistory?.clientsSeeds || (fairnessData as any).clientsSeeds || [],
           combinedHash: coeffHistory?.combinedHash || fairnessData.combinedHash || '',
           decimal: coeffHistory?.decimal || fairnessData.decimal || '',
           maxCoefficient: 1000000,
