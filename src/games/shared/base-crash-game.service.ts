@@ -5,6 +5,7 @@ import { GameStatus, GameStateChangePayload, CoefficientChangePayload, BetData, 
 import { RedisService } from '../../modules/redis/redis.service';
 import { GameConfigService } from '../../modules/game-config/game-config.service';
 import { GAME_CONSTANTS } from '../../common/game-constants';
+import { generateMockBets, scheduleMockBetsCashouts, MockBetsConfig, DEFAULT_MOCK_BETS_CONFIG } from './mock-bets.service';
 
 interface ActiveRound {
   roundId: number;
@@ -14,6 +15,7 @@ interface ActiveRound {
   crashCoeff: number | null;
   startTime: number;
   bets: Map<string, BetData>;
+  mockBetsCashoutSchedule?: Map<string, { playerGameId: string; cashoutCoeff: number }>;
   serverSeed: string;
   clientsSeeds: Array<{
     userId: string;
@@ -34,8 +36,17 @@ export abstract class BaseCrashGameService {
   protected previousRoundBets: BetData[] = [];
   protected roundCounter = 0;
   protected rtp: number | null = null;
+  protected pendingMockBets: BetData[] = [];
 
   protected abstract getGameConstants(): typeof GAME_CONSTANTS.SUGAR_DADDY;
+
+  /**
+   * Get mock bets configuration for this game
+   * Override in child classes to customize
+   */
+  protected getMockBetsConfig(): Partial<MockBetsConfig> {
+    return {};
+  }
 
   constructor(
     gameCode: string,
@@ -128,6 +139,7 @@ export abstract class BaseCrashGameService {
       crashCoeff: null,
       startTime: Date.now(),
       bets: new Map(),
+      mockBetsCashoutSchedule: new Map(),
       serverSeed,
       clientsSeeds: [],
       combinedHash: '',
@@ -136,6 +148,24 @@ export abstract class BaseCrashGameService {
     };
 
     this.activeRound.crashCoeff = await this.calculateCrashCoefficient(serverSeed);
+
+    // Generate mock bets for this round
+    const mockBetsConfig = this.getMockBetsConfig();
+    const mockBets = generateMockBets(mockBetsConfig);
+    
+    // Ensure we have at least 15 mock bets
+    if (mockBets.length < 15) {
+      const additionalBets = generateMockBets(mockBetsConfig);
+      mockBets.push(...additionalBets.slice(0, 15 - mockBets.length));
+    }
+
+    // Schedule cashouts for mock bets
+    if (this.activeRound.crashCoeff && mockBets.length > 0) {
+      const cashoutSchedule = scheduleMockBetsCashouts(mockBets, this.activeRound.crashCoeff);
+      this.activeRound.mockBetsCashoutSchedule = cashoutSchedule;
+    }
+
+    this.pendingMockBets = mockBets;
 
     await this.saveActiveRoundToRedis();
 
@@ -374,6 +404,53 @@ export abstract class BaseCrashGameService {
     await this.saveActiveRoundToRedis();
 
     this.logger.debug(`Bet added: playerGameId=${bet.playerGameId} amount=${bet.betAmount}`);
+  }
+
+  /**
+   * Add a batch of mock bets to the active round
+   */
+  async addMockBetsBatch(bets: BetData[]): Promise<void> {
+    await this.loadActiveRoundFromRedis();
+    if (!this.activeRound) {
+      return;
+    }
+
+    for (const bet of bets) {
+      this.activeRound.bets.set(bet.playerGameId, bet);
+
+      // Add client seed for mock bets (treat them as real bets except wallet/DB)
+      const existingClientSeed = this.activeRound.clientsSeeds.find(
+        (clientSeed) => clientSeed.userId === bet.userId,
+      );
+      
+      if (!existingClientSeed) {
+        const userSeed = crypto.randomBytes(8).toString('hex');
+        
+        this.activeRound.clientsSeeds.push({
+          userId: bet.userId,
+          seed: userSeed,
+          nickname: bet.nickname || `user${bet.userId}`,
+          gameAvatar: bet.gameAvatar || null,
+        });
+      }
+    }
+
+    await this.saveActiveRoundToRedis();
+  }
+
+  /**
+   * Get pending mock bets that haven't been added yet
+   */
+  getPendingMockBets(): BetData[] {
+    return this.pendingMockBets;
+  }
+
+  /**
+   * Remove mock bets from pending list
+   */
+  removePendingMockBets(bets: BetData[]): void {
+    const betIds = new Set(bets.map(b => b.playerGameId));
+    this.pendingMockBets = this.pendingMockBets.filter(b => !betIds.has(b.playerGameId));
   }
 
   async cashOutBet(playerGameId: string, currentCoeff: number): Promise<BetData | null> {
@@ -806,6 +883,9 @@ export abstract class BaseCrashGameService {
       const redisClient = this.redisService.getClient();
 
       const betsArray = Array.from(this.activeRound.bets.entries());
+      const mockBetsCashoutScheduleArray = this.activeRound.mockBetsCashoutSchedule
+        ? Array.from(this.activeRound.mockBetsCashoutSchedule.entries())
+        : [];
 
       const roundData = {
         roundId: this.activeRound.roundId,
@@ -815,6 +895,7 @@ export abstract class BaseCrashGameService {
         crashCoeff: this.activeRound.crashCoeff,
         startTime: this.activeRound.startTime,
         bets: betsArray,
+        mockBetsCashoutSchedule: mockBetsCashoutScheduleArray,
         serverSeed: this.activeRound.serverSeed,
         clientsSeeds: this.activeRound.clientsSeeds,
         combinedHash: this.activeRound.combinedHash,
@@ -871,6 +952,13 @@ export abstract class BaseCrashGameService {
         }
       }
 
+      const mockBetsCashoutScheduleMap = new Map<string, { playerGameId: string; cashoutCoeff: number }>();
+      if (roundData.mockBetsCashoutSchedule && Array.isArray(roundData.mockBetsCashoutSchedule)) {
+        for (const [key, value] of roundData.mockBetsCashoutSchedule) {
+          mockBetsCashoutScheduleMap.set(key, value as { playerGameId: string; cashoutCoeff: number });
+        }
+      }
+
       this.activeRound = {
         roundId: roundData.roundId,
         gameUUID: roundData.gameUUID,
@@ -879,6 +967,7 @@ export abstract class BaseCrashGameService {
         crashCoeff: roundData.crashCoeff,
         startTime: roundData.startTime,
         bets: betsMap,
+        mockBetsCashoutSchedule: mockBetsCashoutScheduleMap.size > 0 ? mockBetsCashoutScheduleMap : new Map(),
         serverSeed: roundData.serverSeed,
         clientsSeeds: clientsSeeds,
         combinedHash: roundData.combinedHash || '',

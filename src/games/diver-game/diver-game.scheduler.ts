@@ -19,6 +19,7 @@ export class DiverGameScheduler implements OnModuleInit, OnModuleDestroy {
   private leaderRenewTimer: NodeJS.Timeout | null = null;
   private leaderElectionTimer: NodeJS.Timeout | null = null;
   private retryTimer: NodeJS.Timeout | null = null;
+  private mockBetsAdditionTimer: NodeJS.Timeout | null = null;
   private isRunning = false;
   private isLeader = false;
 
@@ -138,6 +139,84 @@ export class DiverGameScheduler implements OnModuleInit, OnModuleDestroy {
     this.startNewRound();
   }
 
+  private startGradualMockBetsAddition(): void {
+    if (this.mockBetsAdditionTimer) {
+      clearInterval(this.mockBetsAdditionTimer);
+      this.mockBetsAdditionTimer = null;
+    }
+
+    const pendingMockBets = this.diverGameService.getPendingMockBets();
+    if (pendingMockBets.length === 0) {
+      return;
+    }
+
+    const numBatches = Math.floor(Math.random() * 3) + 3;
+    let batchIndex = 0;
+
+    const addBatch = async () => {
+      if (!this.isLeader) {
+        if (this.mockBetsAdditionTimer) {
+          clearInterval(this.mockBetsAdditionTimer);
+          this.mockBetsAdditionTimer = null;
+        }
+        return;
+      }
+
+      const activeRound = await this.diverGameService.getActiveRound();
+      if (!activeRound || activeRound.status !== GameStatus.WAIT_GAME) {
+        if (this.mockBetsAdditionTimer) {
+          clearInterval(this.mockBetsAdditionTimer);
+          this.mockBetsAdditionTimer = null;
+        }
+        return;
+      }
+
+      const remainingBets = this.diverGameService.getPendingMockBets();
+      if (remainingBets.length === 0) {
+        if (this.mockBetsAdditionTimer) {
+          clearInterval(this.mockBetsAdditionTimer);
+          this.mockBetsAdditionTimer = null;
+        }
+        return;
+      }
+
+      const batchSize = Math.min(Math.floor(Math.random() * 7) + 2, remainingBets.length);
+      const batch = remainingBets.slice(0, batchSize);
+      
+      await this.diverGameService.addMockBetsBatch(batch);
+      this.diverGameService.removePendingMockBets(batch);
+
+      const gameState = await this.diverGameService.getCurrentGameState();
+      if (gameState) {
+        this.diverGameHandler.broadcastGameStateChange(this.GAME_CODE, gameState);
+      }
+
+      batchIndex++;
+
+      if (remainingBets.length <= batchSize || batchIndex >= numBatches) {
+        if (this.mockBetsAdditionTimer) {
+          clearInterval(this.mockBetsAdditionTimer);
+          this.mockBetsAdditionTimer = null;
+        }
+        
+        const finalRemaining = this.diverGameService.getPendingMockBets();
+        if (finalRemaining.length > 0) {
+          await this.diverGameService.addMockBetsBatch(finalRemaining);
+          this.diverGameService.removePendingMockBets(finalRemaining);
+          
+          const finalGameState = await this.diverGameService.getCurrentGameState();
+          if (finalGameState) {
+            this.diverGameHandler.broadcastGameStateChange(this.GAME_CODE, finalGameState);
+          }
+        }
+      }
+    };
+
+    const interval = Math.floor(Math.random() * 2000) + 1000;
+    this.mockBetsAdditionTimer = setInterval(addBatch, interval);
+    addBatch();
+  }
+
   private stopGameLoop(): void {
     if (this.waitTimer) {
       clearTimeout(this.waitTimer);
@@ -150,6 +229,10 @@ export class DiverGameScheduler implements OnModuleInit, OnModuleDestroy {
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
+    }
+    if (this.mockBetsAdditionTimer) {
+      clearInterval(this.mockBetsAdditionTimer);
+      this.mockBetsAdditionTimer = null;
     }
     this.isRunning = false;
     this.diverGameHandler.stopCoefficientBroadcast();
@@ -224,6 +307,9 @@ export class DiverGameScheduler implements OnModuleInit, OnModuleDestroy {
 
       this.logger.log(`[DIVER_SCHEDULER] Starting game state broadcast...`);
       this.diverGameHandler.startGameStateBroadcast(this.GAME_CODE);
+
+      // Start gradual mock bets addition
+      this.startGradualMockBetsAddition();
 
       if (this.waitTimer) {
         clearTimeout(this.waitTimer);

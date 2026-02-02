@@ -27,4 +27,10 @@ export class DiverGameService extends BaseCrashGameService {
       rtp: DEFAULTS.DIVER.RTP,
     };
   }
+
+  protected getMockBetsConfig(): Partial<import('../shared/mock-bets.service').MockBetsConfig> {
+    return {
+      currency: 'INR',
+    };
+  }
 }

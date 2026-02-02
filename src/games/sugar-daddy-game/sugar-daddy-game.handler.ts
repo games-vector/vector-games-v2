@@ -778,19 +778,19 @@ export class SugarDaddyGameHandler implements IGameHandler {
   }
 
   private async processCoefficientUpdate(gameCode: string | null): Promise<boolean> {
-    const activeRound = await this.sugarDaddyGameService.getActiveRound();
-    
+          const activeRound = await this.sugarDaddyGameService.getActiveRound();
+
     if (!activeRound || activeRound.status !== GameStatus.IN_GAME || !activeRound.isRunning) {
       this.stopCoefficientBroadcast();
       return false;
     }
 
-    const updated = await this.sugarDaddyGameService.updateCoefficient();
-    
-    const coeff = await this.sugarDaddyGameService.getCurrentCoefficient();
-    if (coeff) {
-      this.broadcastCoefficientUpdate(gameCode, coeff);
-    }
+            const updated = await this.sugarDaddyGameService.updateCoefficient();
+
+            const coeff = await this.sugarDaddyGameService.getCurrentCoefficient();
+            if (coeff) {
+              this.broadcastCoefficientUpdate(gameCode, coeff);
+            }
 
     await this.processAutoCashouts(gameCode);
     
@@ -798,11 +798,11 @@ export class SugarDaddyGameHandler implements IGameHandler {
   }
 
   private async processAutoCashouts(gameCode: string | null): Promise<void> {
-    const autoCashoutBets = await this.sugarDaddyGameService.getAutoCashoutBets();
+            const autoCashoutBets = await this.sugarDaddyGameService.getAutoCashoutBets();
     if (autoCashoutBets.length === 0) return;
 
-    for (const { playerGameId, bet, isMockBet } of autoCashoutBets) {
-      if (isMockBet) {
+              for (const { playerGameId, bet, isMockBet } of autoCashoutBets) {
+                if (isMockBet) {
         await this.processMockBetCashout(playerGameId, gameCode);
       } else {
         this.processAutoCashout(playerGameId, bet, gameCode).catch((error) => {
@@ -813,51 +813,51 @@ export class SugarDaddyGameHandler implements IGameHandler {
   }
 
   private async processMockBetCashout(playerGameId: string, gameCode: string | null): Promise<void> {
-    const activeRound = await this.sugarDaddyGameService.getActiveRound();
+                  const activeRound = await this.sugarDaddyGameService.getActiveRound();
     if (!activeRound) return;
 
-    const schedule = activeRound.mockBetsCashoutSchedule.get(playerGameId);
+                    const schedule = activeRound.mockBetsCashoutSchedule.get(playerGameId);
     if (!schedule) return;
 
-    const mockBet = activeRound.bets.get(playerGameId);
+                      const mockBet = activeRound.bets.get(playerGameId);
     if (!mockBet || !mockBet.userId.startsWith('mock_')) return;
 
     mockBet.coeffWin = schedule.cashoutCoeff.toFixed(2);
-    const betAmount = parseFloat(mockBet.betAmount || '0');
+                        const betAmount = parseFloat(mockBet.betAmount || '0');
     mockBet.winAmount = Math.round(betAmount * schedule.cashoutCoeff).toString();
-    activeRound.bets.set(playerGameId, mockBet);
-    activeRound.mockBetsCashoutSchedule.delete(playerGameId);
+                        activeRound.bets.set(playerGameId, mockBet);
+                        activeRound.mockBetsCashoutSchedule.delete(playerGameId);
     
-    await this.sugarDaddyGameService.saveActiveRoundToRedis();
-    
-    const gameState = await this.sugarDaddyGameService.getCurrentGameState();
-    if (gameState) {
-      this.broadcastGameStateChange(gameCode, gameState);
-    }
-  }
+                        await this.sugarDaddyGameService.saveActiveRoundToRedis();
+                        
+                        const gameState = await this.sugarDaddyGameService.getCurrentGameState();
+                        if (gameState) {
+                          this.broadcastGameStateChange(gameCode, gameState);
+                        }
+                      }
 
   private async handleRoundEnd(gameCode: string | null): Promise<void> {
-    this.stopCoefficientBroadcast();
-    
-    const activeRound = await this.sugarDaddyGameService.getActiveRound();
+              this.stopCoefficientBroadcast();
+              
+              const activeRound = await this.sugarDaddyGameService.getActiveRound();
     if (!activeRound?.roundId) return;
 
-    try {
+                try {
       await this.sugarDaddyGameBetService.settleUncashedBets(
         activeRound.roundId,
         gameCode || 'sugar-daddy',
-      );
-    } catch (error) {
+                  );
+                } catch (error) {
       this.logger.error(`[COEFF_BROADCAST] Settlement error: ${(error as Error).message}`);
-    }
-
-    const gameState = await this.sugarDaddyGameService.getCurrentGameState();
-    if (gameState) {
-      this.broadcastGameStateChange(gameCode, gameState);
-    }
-
-    if (this.onRoundEndCallback) {
-      this.onRoundEndCallback();
+              }
+              
+              const gameState = await this.sugarDaddyGameService.getCurrentGameState();
+              if (gameState) {
+                this.broadcastGameStateChange(gameCode, gameState);
+              }
+              
+              if (this.onRoundEndCallback) {
+                this.onRoundEndCallback();
     }
   }
 

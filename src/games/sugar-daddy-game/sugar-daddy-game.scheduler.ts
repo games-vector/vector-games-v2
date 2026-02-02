@@ -363,7 +363,7 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
       if (!activeRound || activeRound.status !== GameStatus.WAIT_GAME) {
         return;
       }
-
+      
       await this.sugarDaddyGameService.startGame();
 
       const gameState = await this.sugarDaddyGameService.getCurrentGameState();

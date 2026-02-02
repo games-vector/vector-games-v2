@@ -5,8 +5,8 @@ import { GameStatus, GameStateChangePayload, CoefficientChangePayload, BetData, 
 import { RedisService } from '../../modules/redis/redis.service';
 import { DEFAULTS } from '../../config/defaults.config';
 import { GAME_CONSTANTS } from '../../common/game-constants';
-
 import { GameConfigService } from '../../modules/game-config/game-config.service';
+import { generateMockBets, scheduleMockBetsCashouts, MockBetsConfig } from '../shared/mock-bets.service';
 
 interface ActiveRound {
   roundId: number;
@@ -96,15 +96,22 @@ export class SugarDaddyGameService {
 
     this.activeRound.crashCoeff = await this.calculateCrashCoefficient(serverSeed);
 
-    const mockBets = this.generateMockBets(100);
+    // Generate mock bets using shared service
+    const mockBetsConfig: Partial<MockBetsConfig> = {
+      currency: 'INR',
+    };
+    const mockBets = generateMockBets(mockBetsConfig);
     
+    // Ensure we have at least 15 mock bets
     if (mockBets.length < 15) {
-      const additionalBets = this.generateMockBets(100);
+      const additionalBets = generateMockBets(mockBetsConfig);
       mockBets.push(...additionalBets.slice(0, 15 - mockBets.length));
     }
     
-    if (this.activeRound.crashCoeff) {
-      this.scheduleMockBetsCashouts(mockBets, this.activeRound.crashCoeff);
+    // Schedule cashouts for mock bets
+    if (this.activeRound.crashCoeff && mockBets.length > 0) {
+      const cashoutSchedule = scheduleMockBetsCashouts(mockBets, this.activeRound.crashCoeff);
+      this.activeRound.mockBetsCashoutSchedule = cashoutSchedule;
     }
     
     this.pendingMockBets = mockBets;
@@ -767,127 +774,7 @@ export class SugarDaddyGameService {
    * Individual bet amounts: 10-3,000 INR (multiples of 5)
    * Minimum 15 bets always
    */
-  private generateMockBets(targetTotal: number = 100): BetData[] {
-    const mockBets: BetData[] = [];
-    let currentTotal = 0;
-    const minBetAmount = 10;
-    const maxBetAmount = 3000; // Reduced from 13000
-    
-    // Target total: 15k-20k (90%), 20k-25k (10%)
-    const useHighRange = Math.random() < 0.1; // 10% chance
-    const targetMin = useHighRange ? 20000 : 15000;
-    const targetMax = useHighRange ? 25000 : 20000;
-    const calculatedTargetTotal = Math.floor(Math.random() * (targetMax - targetMin + 1)) + targetMin;
-    
-    // Generate random number of bets (minimum 15, up to 30)
-    const numBets = Math.floor(Math.random() * 16) + 15; // 15 to 30
-    
-    // Generate bets until we reach target total
-    for (let i = 0; i < numBets; i++) {
-      // If we haven't reached target, ensure remaining bets will get us there
-      const remainingBets = numBets - i;
-      const remainingNeeded = Math.max(0, calculatedTargetTotal - currentTotal);
-      
-      let betAmount: number;
-      if (remainingNeeded > 0 && remainingBets > 0) {
-        // Ensure we can reach target, but still randomize
-        const minForThisBet = Math.min(minBetAmount, Math.floor(remainingNeeded / remainingBets));
-        const maxForThisBet = Math.min(maxBetAmount, Math.max(minForThisBet, remainingNeeded * 2));
-        betAmount = Math.floor(Math.random() * (maxForThisBet - minForThisBet + 1)) + minForThisBet;
-      } else {
-        // Random bet amount
-        betAmount = Math.floor(Math.random() * (maxBetAmount - minBetAmount + 1)) + minBetAmount;
-      }
-      
-      // Round to nearest multiple of 5
-      betAmount = Math.round(betAmount / 5) * 5;
-      // Ensure minimum of 10
-      if (betAmount < minBetAmount) {
-        betAmount = minBetAmount;
-      }
-      
-      currentTotal += betAmount;
-      
-      const mockUserId = `mock_${uuidv4()}`;
-      const playerGameId = uuidv4();
-      const randomNumber = Math.floor(Math.random() * 10000);
-      const nickname = `Player${randomNumber}`;
-      const gameAvatar = Math.floor(Math.random() * 50) + 1; // 1-50
-      
-      mockBets.push({
-        userId: mockUserId,
-        operatorId: 'system',
-        multiplayerGameId: '',
-        nickname,
-        currency: 'INR',
-        betAmount: betAmount.toString(), // Full number, no decimals
-        betNumber: 0,
-        gameAvatar,
-        playerGameId,
-      });
-    }
-    
-    this.logger.debug(
-      `[MOCK_BETS] Generated ${mockBets.length} mock bets with total ${currentTotal} (target: ${calculatedTargetTotal})`,
-    );
-    
-    return mockBets;
-  }
-
-  /**
-   * Schedule cashouts for 50-60% of mock bets at random coefficients
-   * Distribution: 30% low (1.10-2.00x), 40% medium (2.00-5.00x), 20% high (5.00-10.00x), 10% very high (10.00x+)
-   */
-  private scheduleMockBetsCashouts(mockBets: BetData[], crashCoeff: number): void {
-    if (!this.activeRound || mockBets.length === 0) {
-      return;
-    }
-
-    // Determine how many bets will cashout (50-60% of total)
-    const cashoutPercentage = 0.50 + Math.random() * 0.10; // 50-60%
-    const numBetsToCashout = Math.max(1, Math.floor(mockBets.length * cashoutPercentage));
-    
-    // Shuffle and select bets to cashout
-    const shuffledBets = [...mockBets].sort(() => Math.random() - 0.5);
-    const betsToCashout = shuffledBets.slice(0, numBetsToCashout);
-    
-    // Ensure crashCoeff is at least 1.10 for cashout scheduling
-    const minCrashCoeff = Math.max(1.10, crashCoeff);
-    
-    for (const bet of betsToCashout) {
-      // Determine cashout coefficient based on distribution
-      const random = Math.random();
-      let cashoutCoeff: number;
-      
-      if (random < 0.30) {
-        // 30% cashout at low range (1.10-2.00x)
-        cashoutCoeff = 1.10 + Math.random() * 0.90;
-      } else if (random < 0.70) {
-        // 40% cashout at medium range (2.00-5.00x)
-        cashoutCoeff = 2.00 + Math.random() * 3.00;
-      } else if (random < 0.90) {
-        // 20% cashout at high range (5.00-10.00x)
-        cashoutCoeff = 5.00 + Math.random() * 5.00;
-      } else {
-        // 10% cashout at very high range (10.00x+)
-        const maxHighCoeff = Math.min(minCrashCoeff, 50.00); // Cap at 50x or crashCoeff
-        cashoutCoeff = 10.00 + Math.random() * (maxHighCoeff - 10.00);
-      }
-      
-      // Ensure cashout coefficient doesn't exceed crash coefficient
-      cashoutCoeff = Math.min(cashoutCoeff, minCrashCoeff);
-      cashoutCoeff = parseFloat(cashoutCoeff.toFixed(2));
-      
-      this.activeRound.mockBetsCashoutSchedule.set(bet.playerGameId, {
-        playerGameId: bet.playerGameId,
-        cashoutCoeff,
-      });
-    }
-    
-    this.logger.debug(
-      `[MOCK_BETS_CASHOUT] Scheduled ${betsToCashout.length} mock bet cashouts out of ${mockBets.length} total bets`,
-    );
-  }
+  // Mock bet generation methods moved to shared/mock-bets.service.ts
 
   /**
    * Process mock bet cashout (display only, no wallet/database operations)

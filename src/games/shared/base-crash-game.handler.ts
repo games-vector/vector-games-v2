@@ -885,6 +885,9 @@ export abstract class BaseCrashGameHandler implements IGameHandler {
               }
             }
 
+            // Process mock bet cashouts
+            await this.processMockBetCashouts(gameCode);
+
             if (!updated) {
               this.logger.log(
                 `[COEFF_BROADCAST] Coefficient update returned false, round ended. Stopping broadcast and transitioning to FINISH_GAME`,
@@ -1069,6 +1072,51 @@ export abstract class BaseCrashGameHandler implements IGameHandler {
     } catch (error: any) {
       this.logger.error(
         `Error processing auto-cashout: playerGameId=${playerGameId} error=${error.message}`,
+      );
+    }
+  }
+
+  private async processMockBetCashouts(gameCode: string | null): Promise<void> {
+    try {
+      const activeRound = await this.gameService.getActiveRound();
+      if (!activeRound || !activeRound.mockBetsCashoutSchedule) {
+        return;
+      }
+
+      const currentCoeff = activeRound.currentCoeff;
+      const scheduledCashouts: Array<{ playerGameId: string; bet: BetData }> = [];
+
+      // Find all mock bets that should cashout at current coefficient
+      for (const [playerGameId, schedule] of activeRound.mockBetsCashoutSchedule.entries()) {
+        if (currentCoeff >= schedule.cashoutCoeff) {
+          const bet = activeRound.bets.get(playerGameId);
+          if (bet && bet.userId.startsWith('mock_') && !bet.coeffWin) {
+            scheduledCashouts.push({ playerGameId, bet });
+          }
+        }
+      }
+
+      // Process each scheduled cashout
+      for (const { playerGameId, bet } of scheduledCashouts) {
+        const schedule = activeRound.mockBetsCashoutSchedule.get(playerGameId);
+        if (!schedule) continue;
+
+        bet.coeffWin = schedule.cashoutCoeff.toFixed(2);
+        const betAmount = parseFloat(bet.betAmount || '0');
+        bet.winAmount = Math.round(betAmount * schedule.cashoutCoeff).toString();
+        activeRound.bets.set(playerGameId, bet);
+        activeRound.mockBetsCashoutSchedule.delete(playerGameId);
+
+        await this.gameService.saveActiveRoundToRedis();
+
+        const gameState = await this.gameService.getCurrentGameState();
+        if (gameState && gameCode) {
+          this.broadcastGameStateChange(gameCode, gameState);
+        }
+      }
+    } catch (error: any) {
+      this.logger.error(
+        `Error processing mock bet cashouts: ${error.message}`,
       );
     }
   }
