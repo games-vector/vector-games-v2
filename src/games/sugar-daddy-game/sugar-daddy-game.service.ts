@@ -616,14 +616,6 @@ export class SugarDaddyGameService {
       // This gives us: [oldest, ..., newest] with oldest at index 0, newest at index 50
       // This is the correct order - no need to reverse
 
-      // Debug log: Log how many entries retrieved and sample of clientsSeeds
-      if (history.length > 0) {
-        const sampleEntry = history[0];
-        const lastEntry = history[history.length - 1];
-        this.logger.debug(
-          `[CLIENTSSEEDS_DEBUG] getCoefficientsHistory: Retrieved ${history.length} entries, first entry (oldest) gameId=${sampleEntry.gameId} clientsSeedsCount=${sampleEntry.clientsSeeds?.length || 0}, last entry (newest) gameId=${lastEntry.gameId} clientsSeedsCount=${lastEntry.clientsSeeds?.length || 0}`,
-        );
-      }
 
       return history;
     } catch (error) {
@@ -1341,10 +1333,6 @@ export class SugarDaddyGameService {
         topClientsSeeds = top3ClientsSeeds;
       }
       
-      // Debug log: Log clientsSeeds in FINISH_GAME state
-      this.logger.debug(
-        `[CLIENTSSEEDS_DEBUG] buildGameStatePayload FINISH_GAME: topClientsSeeds count=${topClientsSeeds.length} contents=${JSON.stringify(topClientsSeeds.map(cs => ({ userId: cs.userId, nickname: cs.nickname })))}`,
-      );
       
       // Construct current round's coefficient history entry
       const currentRoundEntry: CoefficientHistory = {
@@ -1357,10 +1345,6 @@ export class SugarDaddyGameService {
         decimal: activeRound.decimal,
       };
       
-      // Debug log: Log what's being set in currentRoundEntry.clientsSeeds
-      this.logger.debug(
-        `[CLIENTSSEEDS_DEBUG] buildGameStatePayload FINISH_GAME: currentRoundEntry.clientsSeeds count=${currentRoundEntry.clientsSeeds.length} for gameId=${currentRoundEntry.gameId}`,
-      );
       
       // Check if current round is already in history (by gameId)
       const currentRoundInHistory = existingHistory.find(h => h.gameId === activeRound.roundId);
