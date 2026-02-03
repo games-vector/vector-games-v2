@@ -47,7 +47,25 @@
         const operatorId = params.get('operatorId') || 'brlag';
         const gameMode = params.get('gameMode') || 'coinflip';
         const currency = params.get('currency') || 'INR';
-        const API_URL = "http://localhost:3000";
+
+        // MODE: 'demo' for testing with dev tokens, 'live' for production with real auth
+        const mode = params.get('mode') || 'demo';
+
+        // API_URL: Can be configured via URL param or defaults based on mode
+        const API_URL = params.get('apiUrl') || window.location.origin.replace(/:\d+$/, ':3000');
+
+        // Pre-existing auth token (for live mode - passed from operator)
+        const authToken = params.get('authToken') || params.get('token');
+
+        // Ensure URL has required parameters for React app
+        if (!params.has('operatorId') || !params.has('gameMode')) {
+          const newParams = new URLSearchParams(window.location.search);
+          if (!params.has('operatorId')) newParams.set('operatorId', operatorId);
+          if (!params.has('gameMode')) newParams.set('gameMode', gameMode);
+          if (!params.has('currency')) newParams.set('currency', currency);
+          if (!params.has('mode')) newParams.set('mode', mode);
+          window.history.replaceState({}, '', '?' + newParams.toString());
+        }
 
         // Initialize window.env with all required values
         window.env = {
@@ -59,54 +77,86 @@
           VITE_DEFAULT_CURRENCY: currency,
           VITE_DEFAULT_LANGUAGE: "en",
           VITE_TOLGEE_CDN: 'https://i18n.inout.games/1febfee655c493da075c27793d33b5f9',
-          LAUNCHDARKLY_KEY: "66cd66a0ee056b104ba45da5",
-          VITE_APP_TOLGEE_API_URL: 'https://tolgee.inout.games',
-          VITE_APP_TOLGEE_API_KEY: 'tgpak_gfpw22dhojzwon3gnbtw4mdtorxwo3rqmv2xiolcgbttc',
           VITE_ASSETS_ENDPOINT: "https://inout-assets.s3.eu-central-1.amazonaws.com",
-          VITE_SENTRY_DSN: "",
-          VITE_SENTRY_URL: "",
-          VITE_HJID: "",
-          VITE_SENTRY_ID: "",
           VITE_GAMES_BASE_URL: "inout.games",
-          VITE_MATOMO_URL: "",
-          VITE_MATOMO_ID: "",
           IS_LOBBY_ENABLED: false,
+          MODE: mode, // 'demo' or 'live'
         };
 
+        console.log(`[Auth] Mode: ${mode}, Operator: ${operatorId}, Currency: ${currency}`);
+
         try {
-          // Step 1: Get dev token
-          console.log('[Auth] Getting dev token...');
-          const devResp = await fetch(`${API_URL}/api/dev-game-token?userId=testuser001&operatorId=${operatorId}&currency=${currency}&game_mode=${gameMode}`);
-          const devData = await devResp.json();
+          let jwt = null;
 
-          // Step 2: Authenticate and get JWT
-          console.log('[Auth] Authenticating...');
-          const authResp = await fetch(`${API_URL}/api/auth`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              operator: operatorId,
-              auth_token: devData.token,
-              currency: currency,
-              game_mode: gameMode
-            })
-          });
-          const authData = await authResp.json();
+          if (mode === 'live' && authToken) {
+            // LIVE MODE: Use pre-provided auth token from operator
+            console.log('[Auth] Live mode - using provided auth token...');
+            const authResp = await fetch(`${API_URL}/api/auth`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                operator: operatorId,
+                auth_token: authToken,
+                currency: currency,
+                game_mode: gameMode
+              })
+            });
+            const authData = await authResp.json();
+            if (authData.success && authData.jwt) {
+              jwt = authData.jwt;
+            } else {
+              console.error('[Auth] Live auth failed:', authData);
+              throw new Error(authData.message || 'Authentication failed');
+            }
+          } else {
+            // DEMO MODE: Use dev token endpoint for testing
+            console.log('[Auth] Demo mode - getting dev token...');
+            const userId = params.get('userId') || 'demouser_' + Math.random().toString(36).substring(7);
+            const devResp = await fetch(`${API_URL}/api/dev-game-token?userId=${userId}&operatorId=${operatorId}&currency=${currency}&game_mode=${gameMode}`);
+            if (!devResp.ok) {
+              throw new Error('Dev token endpoint not available. Ensure APP_ENV=development on backend.');
+            }
+            const devData = await devResp.json();
 
-          if (authData.success && authData.jwt) {
-            // Set JWT before React loads
-            window.env.JWT = authData.jwt;
+            const authResp = await fetch(`${API_URL}/api/auth`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                operator: operatorId,
+                auth_token: devData.token,
+                currency: currency,
+                game_mode: gameMode
+              })
+            });
+            const authData = await authResp.json();
+            if (authData.success && authData.jwt) {
+              jwt = authData.jwt;
+            } else {
+              console.error('[Auth] Demo auth failed:', authData);
+              throw new Error(authData.message || 'Demo authentication failed');
+            }
+          }
+
+          if (jwt) {
+            window.env.JWT = jwt;
             console.log('[Auth] Success! JWT set.');
 
-            // Also add authToken to URL for React's internal WebSocket logic
+            // Update URL with authToken for React's internal WebSocket logic
             const newParams = new URLSearchParams(window.location.search);
-            newParams.set('authToken', authData.jwt);
+            newParams.set('authToken', jwt);
             window.history.replaceState({}, '', '?' + newParams.toString());
-          } else {
-            console.error('[Auth] Failed:', authData);
           }
         } catch (err) {
-          console.error('[Auth] Error:', err);
+          console.error('[Auth] Error:', err.message);
+          // Show error to user in demo mode
+          if (mode === 'demo') {
+            document.body.innerHTML = `<div style="color:#fff;background:#1a1a2e;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:sans-serif;">
+              <h2>⚠️ Connection Error</h2>
+              <p>${err.message}</p>
+              <p style="color:#888;font-size:14px;">Make sure the backend is running at ${API_URL}</p>
+            </div>`;
+            return;
+          }
         }
 
         // Load socket.io first

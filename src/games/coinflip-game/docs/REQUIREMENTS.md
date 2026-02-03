@@ -587,3 +587,42 @@ src/games/coinflip-game/
 5. **Acknowledgment IDs**: Socket.IO ack IDs are auto-incrementing per client session
 6. **Quick Games History**: Store last N quick game results for the user (shown in UI)
 7. **Fairness Seeds**: Generate and rotate seeds per bet for provably fair verification
+
+---
+
+## Local Testing Setup
+
+### Operator Configuration
+
+| Operator | Wallet API | Use Case |
+|----------|------------|----------|
+| `brlag` | Real remote API | **Recommended for testing** - no additional setup needed |
+| `dev-operator` | `localhost:3001` | Requires mock wallet server running |
+
+### Quick Start (Recommended)
+
+1. Start the backend: `npm run start:dev`
+2. Open test UI: `coinflip-clone-httrack/simple-test.html`
+3. The test UI uses `brlag` operator by default (real wallet API)
+
+### Test Files
+
+All test HTML files in `coinflip-clone-httrack/` are configured to use `brlag` operator:
+- `simple-test.html` - Simple UI for QUICK mode testing
+- `index.html` - Full React frontend
+- `test-direct-connection.html` - WebSocket connection testing
+- `test-coinflip.html` - Basic coinflip testing
+
+### Using dev-operator (Optional)
+
+If you need to use `dev-operator` (isolated local testing):
+1. Start mock wallet: `node mock-wallet-server.js`
+2. Add `?operatorId=dev-operator` to the test URL
+
+### Common Issues
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| `bet_failed` with ECONNREFUSED | Mock wallet not running | Use `brlag` operator or start `mock-wallet-server.js` |
+| Balance not updating | WebSocket disconnect | Refresh page, check backend logs |
+| Auth failed | Invalid token | Check backend is running on port 3000 |
