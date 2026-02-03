@@ -73,7 +73,7 @@
 
     <script>
         let socket = null;
-        const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJ0ZXN0dXNlcjAwMSIsImFnZW50SWQiOiJkZXYtb3BlcmF0b3IiLCJ1c2VybmFtZSI6InRlc3R1c2VyMSIsInJvbGUiOiJ1c2VyIiwic3ViIjoidGVzdHVzZXIwMDEiLCJpc3MiOiJ2ZWN0b3ItZ2FtZXMiLCJpYXQiOjE3Njk5NjA3MDQsImV4cCI6MTc3MDA0NzEwNH0.TImbPHmoMP5Fghbmg79YesoQyri-1vKv6zuG6S-u2os';
+        const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0dXNlcjAwMSIsImFnZW50SWQiOiJkZXYtb3BlcmF0b3IiLCJjdXJyZW5jeSI6IklOUiIsImdhbWVfbW9kZSI6ImNvaW5mbGlwIiwidGltZXN0YW1wIjoxNzcwMTM2MTQ0MzI2LCJpYXQiOjE3NzAxMzYxNDQsImV4cCI6MTc3MDc0MDk0NH0.z-7M_e5mK0k0CaVd5qrHhrNY9OHkCn1J7VTTscJbtTs';
         
         document.getElementById('token-display').textContent = TOKEN.substring(0, 50) + '...';
         
@@ -173,7 +173,7 @@
                 action: 'bet',
                 payload: {
                     betAmount: '1.00',
-                    currency: 'USD',
+                    currency: 'INR',
                     choice: choice,
                     playMode: 'QUICK'
                 }

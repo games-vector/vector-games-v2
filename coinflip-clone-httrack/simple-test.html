@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CoinFlip Simple Test</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        body { font-family: Arial; background: #1a1a2e; color: #fff; padding: 20px; }
+        .game-area { background: #16213e; padding: 20px; border-radius: 10px; max-width: 400px; margin: 0 auto; }
+        h1 { text-align: center; color: #ffd700; }
+        .coin { font-size: 80px; text-align: center; margin: 20px 0; }
+        .balance { text-align: center; font-size: 24px; margin: 20px 0; }
+        .buttons { display: flex; gap: 10px; justify-content: center; }
+        button { padding: 15px 30px; font-size: 18px; border: none; border-radius: 8px; cursor: pointer; }
+        .heads { background: #ffd700; color: #000; }
+        .tails { background: #c0c0c0; color: #000; }
+        .bet-input { padding: 10px; font-size: 16px; width: 100px; margin: 10px; }
+        .result { text-align: center; padding: 20px; margin: 20px 0; border-radius: 8px; font-size: 20px; }
+        .win { background: #2d5016; }
+        .lose { background: #5c1a1a; }
+        .status { text-align: center; padding: 10px; background: #333; border-radius: 5px; margin-bottom: 20px; }
+        .connected { background: #2d5016; }
+        #log { background: #000; padding: 10px; border-radius: 5px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="game-area">
+        <h1>COINFLIP</h1>
+        <div id="status" class="status">Connecting...</div>
+        <div class="balance">Balance: <span id="balance">--</span></div>
+        <div class="coin" id="coin">🪙</div>
+        <div style="text-align: center;">
+            <input type="number" id="betAmount" class="bet-input" value="10" min="1" step="1">
+        </div>
+        <div class="buttons">
+            <button class="heads" onclick="placeBet('HEADS')">HEADS</button>
+            <button class="tails" onclick="placeBet('TAILS')">TAILS</button>
+        </div>
+        <div id="result" class="result" style="display:none;"></div>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        let socket = null;
+        let authToken = null;
+        const API_URL = 'http://localhost:3000';
+
+        function log(msg, type='info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.style.color = type === 'error' ? '#ff6b6b' : type === 'success' ? '#51cf66' : '#74c0fc';
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logDiv.insertBefore(entry, logDiv.firstChild);
+        }
+
+        async function init() {
+            log('Initializing...');
+
+            // Get dev token
+            const params = new URLSearchParams(window.location.search);
+            const operatorId = params.get('operatorId') || 'dev-operator';
+            const currency = params.get('currency') || 'INR';
+            const gameMode = params.get('gameMode') || 'coinflip';
+
+            try {
+                // Get dev token
+                log('Getting dev token...');
+                const devResp = await fetch(`${API_URL}/api/dev-game-token?userId=testuser001&operatorId=${operatorId}&currency=${currency}&game_mode=${gameMode}`);
+                const devData = await devResp.json();
+
+                // Auth with backend
+                log('Authenticating...');
+                const authResp = await fetch(`${API_URL}/api/auth`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        operator: operatorId,
+                        auth_token: devData.token,
+                        currency: currency,
+                        game_mode: gameMode
+                    })
+                });
+                const authData = await authResp.json();
+
+                if (authData.success && authData.jwt) {
+                    authToken = authData.jwt;
+                    log('Auth successful!', 'success');
+                    connectSocket(operatorId, gameMode);
+                } else {
+                    log('Auth failed: ' + JSON.stringify(authData), 'error');
+                }
+            } catch (err) {
+                log('Error: ' + err.message, 'error');
+            }
+        }
+
+        function connectSocket(operatorId, gameMode) {
+            log('Connecting to WebSocket...');
+
+            socket = io(API_URL, {
+                path: '/io',
+                query: {
+                    gameMode: gameMode,
+                    operatorId: operatorId,
+                    Authorization: authToken
+                },
+                transports: ['websocket'],
+                reconnection: true
+            });
+
+            socket.on('connect', () => {
+                log('Connected!', 'success');
+                document.getElementById('status').textContent = 'Connected';
+                document.getElementById('status').classList.add('connected');
+            });
+
+            socket.on('connect_error', (err) => {
+                log('Connection error: ' + err.message, 'error');
+            });
+
+            socket.on('disconnect', (reason) => {
+                log('Disconnected: ' + reason, 'error');
+                document.getElementById('status').textContent = 'Disconnected';
+                document.getElementById('status').classList.remove('connected');
+            });
+
+            socket.on('onBalanceChange', (data) => {
+                log(`Balance: ${data.balance} ${data.currency}`, 'success');
+                document.getElementById('balance').textContent = `${data.balance} ${data.currency}`;
+            });
+
+            socket.on('betsConfig', (data) => {
+                log('Bet config received');
+            });
+
+            socket.on('myData', (data) => {
+                log('User data received');
+            });
+        }
+
+        function placeBet(choice) {
+            if (!socket || !socket.connected) {
+                log('Not connected!', 'error');
+                return;
+            }
+
+            const betAmount = document.getElementById('betAmount').value;
+            const resultDiv = document.getElementById('result');
+            const coinDiv = document.getElementById('coin');
+
+            log(`Placing bet: ${choice} for ${betAmount}...`);
+            coinDiv.style.animation = 'spin 0.5s linear infinite';
+
+            socket.emit('gameService', {
+                action: 'bet',
+                payload: {
+                    betAmount: betAmount,
+                    currency: 'INR',
+                    choice: choice,
+                    playMode: 'QUICK'
+                }
+            }, (response) => {
+                coinDiv.style.animation = '';
+
+                if (response.error) {
+                    log('Bet failed: ' + response.error.message, 'error');
+                    resultDiv.style.display = 'block';
+                    resultDiv.className = 'result lose';
+                    resultDiv.textContent = 'Error: ' + response.error.message;
+                } else {
+                    coinDiv.textContent = response.coinResult === 'HEADS' ? '🦅' : '🦁';
+                    resultDiv.style.display = 'block';
+
+                    if (response.isWin) {
+                        resultDiv.className = 'result win';
+                        resultDiv.textContent = `WIN! +${response.winAmount}`;
+                        log(`Won ${response.winAmount}!`, 'success');
+                    } else {
+                        resultDiv.className = 'result lose';
+                        resultDiv.textContent = `LOST -${betAmount}`;
+                        log('Lost the bet', 'error');
+                    }
+
+                    setTimeout(() => { coinDiv.textContent = '🪙'; }, 2000);
+                }
+            });
+        }
+
+        init();
+    </script>
+</body>
+</html>

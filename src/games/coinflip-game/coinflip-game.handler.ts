@@ -228,13 +228,14 @@ export class CoinFlipGameHandler implements IGameHandler {
             if (resp && 'error' in resp) {
               ack(formatErrorResponse(resp.error));
             } else {
-              ack(resp);
+              // Per REQUIREMENTS.md: emit balance change BEFORE ack
               const walletBalance = await this.walletService.getBalance(agentId, userId);
               const currency = resp && 'currency' in resp ? resp.currency : DEFAULTS.PLATFORM.CURRENCY.DEFAULT;
               client.emit(WS_EVENTS.BALANCE_CHANGE, {
                 currency,
                 balance: walletBalance.balance.toString(),
               });
+              ack(resp);
             }
           })
           .catch((e) => {
@@ -254,6 +255,7 @@ export class CoinFlipGameHandler implements IGameHandler {
             if (r && 'error' in r) {
               ack(formatErrorResponse(r.error));
             } else if (r?.isFinished) {
+              // Per REQUIREMENTS.md: emit balance change BEFORE ack
               const walletBalance = await this.walletService.getBalance(agentId, userId);
               client.emit(WS_EVENTS.BALANCE_CHANGE, {
                 currency: r.currency,
@@ -281,13 +283,14 @@ export class CoinFlipGameHandler implements IGameHandler {
             if (r && 'error' in r) {
               ack(formatErrorResponse(r.error));
             } else {
-              ack(r);
+              // Per REQUIREMENTS.md: emit balance change BEFORE ack
               const walletBalance = await this.walletService.getBalance(agentId, userId);
               const currency = r && 'currency' in r ? r.currency : DEFAULTS.PLATFORM.CURRENCY.DEFAULT;
               client.emit(WS_EVENTS.BALANCE_CHANGE, {
                 currency,
                 balance: walletBalance.balance.toString(),
               });
+              ack(r);
             }
           })
           .catch((e) => {

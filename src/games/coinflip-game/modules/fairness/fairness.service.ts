@@ -136,15 +136,28 @@ export class CoinFlipFairnessService {
 
   /**
    * Update user seed
+   * Accepts any non-empty string. If not 16 hex chars, normalizes it to 16 hex via hashing.
    */
   async setUserSeed(
     userId: string,
     agentId: string,
     userSeed: string,
   ): Promise<CoinFlipFairnessData> {
-    // Validate user seed format (16 hex characters)
-    if (!/^[0-9a-fA-F]{16}$/.test(userSeed)) {
-      throw new Error('Invalid user seed format. Must be 16 hexadecimal characters.');
+    if (!userSeed || typeof userSeed !== 'string' || userSeed.trim().length === 0) {
+      throw new Error('User seed cannot be empty.');
+    }
+
+    // Normalize user seed: if not valid 16 hex chars, hash it to produce one
+    let normalizedSeed: string;
+    if (/^[0-9a-fA-F]{16}$/.test(userSeed)) {
+      normalizedSeed = userSeed.toLowerCase();
+    } else {
+      // Hash the input to produce a valid 16-character hex seed
+      const hash = crypto.createHash('sha256').update(userSeed).digest('hex');
+      normalizedSeed = hash.substring(0, 16);
+      this.logger.debug(
+        `Normalized user seed from "${userSeed.substring(0, 20)}..." to ${normalizedSeed}`,
+      );
     }
 
     const key = this.getFairnessKey(userId, agentId);
@@ -152,7 +165,7 @@ export class CoinFlipFairnessService {
 
     const updated: CoinFlipFairnessData = {
       ...existing,
-      userSeed: userSeed.toLowerCase(),
+      userSeed: normalizedSeed,
       updatedAt: new Date(),
     };
 

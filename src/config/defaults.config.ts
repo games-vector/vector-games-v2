@@ -215,7 +215,7 @@ const GAMES_CONFIG = {
       maxWinAmount: '20000.00',
       defaultBetAmount: '0.30',
       betPresets: ['0.5', '1', '2', '7'],
-      decimalPlaces: '2',
+      decimalPlaces: 2,
       currency: 'INR',
     },
 
