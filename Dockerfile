@@ -9,17 +9,29 @@ RUN npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000
 
-# Set up GitHub Packages registry
-RUN echo "@games-vector:registry=https://npm.pkg.github.com" > .npmrc
-
 # Set up GitHub Packages authentication
-# GITHUB_TOKEN should be passed as build arg
+# GITHUB_TOKEN should be passed as build arg, or .npmrc will be copied if it exists
 ARG GITHUB_TOKEN
+
+# Copy .npmrc from build context first (if it exists)
+COPY vector-games-v2/.npmrc* ./
+
+# Set up .npmrc: Use GITHUB_TOKEN if provided, otherwise use .npmrc from build context
 RUN if [ -n "$GITHUB_TOKEN" ]; then \
+      echo "Using GITHUB_TOKEN from build arg"; \
+      echo "@games-vector:registry=https://npm.pkg.github.com" > .npmrc; \
       echo "//npm.pkg.github.com/:_authToken=$GITHUB_TOKEN" >> .npmrc; \
+    elif [ -f vector-games-v2/.npmrc ]; then \
+      echo "Using .npmrc from build context"; \
+      cp vector-games-v2/.npmrc .npmrc; \
     else \
-      echo "Warning: GITHUB_TOKEN not provided. Package installation may fail."; \
-    fi
+      echo "Error: No GITHUB_TOKEN provided and no .npmrc found in build context"; \
+      echo "Please either: 1) Set GITHUB_TOKEN build arg, or 2) Ensure .npmrc exists in vector-games-v2/"; \
+      exit 1; \
+    fi && \
+    echo "=== .npmrc contents (masked) ===" && \
+    sed 's/_authToken=[^ ]*/_authToken=***MASKED***/g' .npmrc && \
+    echo "================================"
 
 # Copy package files (from vector-games-v2 directory)
 COPY vector-games-v2/package*.json ./
@@ -45,17 +57,29 @@ RUN npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000
 
-# Set up GitHub Packages registry for production dependencies
-RUN echo "@games-vector:registry=https://npm.pkg.github.com" > .npmrc
-
-# Set up GitHub Packages authentication
-# GITHUB_TOKEN should be passed as build arg
+# Set up GitHub Packages authentication for production dependencies
+# GITHUB_TOKEN should be passed as build arg, or .npmrc will be copied if it exists
 ARG GITHUB_TOKEN
+
+# Copy .npmrc from build context first (if it exists)
+COPY vector-games-v2/.npmrc* ./
+
+# Set up .npmrc: Use GITHUB_TOKEN if provided, otherwise use .npmrc from build context
 RUN if [ -n "$GITHUB_TOKEN" ]; then \
+      echo "Using GITHUB_TOKEN from build arg"; \
+      echo "@games-vector:registry=https://npm.pkg.github.com" > .npmrc; \
       echo "//npm.pkg.github.com/:_authToken=$GITHUB_TOKEN" >> .npmrc; \
+    elif [ -f vector-games-v2/.npmrc ]; then \
+      echo "Using .npmrc from build context"; \
+      cp vector-games-v2/.npmrc .npmrc; \
     else \
-      echo "Warning: GITHUB_TOKEN not provided. Package installation may fail."; \
-    fi
+      echo "Error: No GITHUB_TOKEN provided and no .npmrc found in build context"; \
+      echo "Please either: 1) Set GITHUB_TOKEN build arg, or 2) Ensure .npmrc exists in vector-games-v2/"; \
+      exit 1; \
+    fi && \
+    echo "=== .npmrc contents (masked) ===" && \
+    sed 's/_authToken=[^ ]*/_authToken=***MASKED***/g' .npmrc && \
+    echo "================================"
 
 # Copy built files
 COPY --from=builder /app/dist ./dist

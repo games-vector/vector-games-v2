@@ -5,8 +5,8 @@ import { GameStatus, GameStateChangePayload, CoefficientChangePayload, BetData, 
 import { RedisService } from '../../modules/redis/redis.service';
 import { DEFAULTS } from '../../config/defaults.config';
 import { GAME_CONSTANTS } from '../../common/game-constants';
-
 import { GameConfigService } from '../../modules/game-config/game-config.service';
+import { generateMockBets, scheduleMockBetsCashouts, MockBetsConfig } from '../shared/mock-bets.service';
 
 interface ActiveRound {
   roundId: number;
@@ -16,6 +16,7 @@ interface ActiveRound {
   crashCoeff: number | null;
   startTime: number;
   bets: Map<string, BetData>;
+  mockBetsCashoutSchedule: Map<string, { playerGameId: string; cashoutCoeff: number }>;
   serverSeed: string;
   clientsSeeds: Array<{
     userId: string;
@@ -26,6 +27,8 @@ interface ActiveRound {
   combinedHash: string;
   decimal: string;
   isRunning: boolean;
+  version?: number;
+  lastSavedAt?: number;
 }
 
 @Injectable()
@@ -34,6 +37,7 @@ export class SugarDaddyGameService {
   private activeRound: ActiveRound | null = null;
   private previousRoundBets: BetData[] = [];
   private roundCounter = 0;
+  private pendingMockBets: BetData[] = [];
   private readonly ROUND_DURATION_MS = GAME_CONSTANTS.SUGAR_DADDY.ROUND_DURATION_MS;
   private readonly COEFF_UPDATE_INTERVAL_MS = GAME_CONSTANTS.SUGAR_DADDY.COEFF_UPDATE_INTERVAL_MS;
   private readonly MIN_COEFF = GAME_CONSTANTS.SUGAR_DADDY.MIN_COEFF;
@@ -50,16 +54,18 @@ export class SugarDaddyGameService {
   private readonly COEFFICIENT_HISTORY_LIMIT = GAME_CONSTANTS.SUGAR_DADDY.COEFFICIENT_HISTORY_LIMIT;
   private readonly LEADER_LOCK_TTL = GAME_CONSTANTS.SUGAR_DADDY.LEADER_LOCK_TTL;
   private rtp: number | null = null;
+  private redisLoadCache: {
+    data: ActiveRound | null;
+    timestamp: number;
+    version: number;
+  } = { data: null, timestamp: 0, version: 0 };
+  private readonly REDIS_CACHE_TTL_MS = 100;
 
   constructor(
     private readonly redisService: RedisService,
     private readonly gameConfigService: GameConfigService,
   ) { }
 
-  /**
-   * Start a new game round (starts in WAIT_GAME state)
-   * Stores state in Redis for multi-pod access
-   */
   async startNewRound(): Promise<ActiveRound> {
     if(this.rtp === null) {
       await this.loadRTP('sugar-daddy');
@@ -78,28 +84,43 @@ export class SugarDaddyGameService {
       crashCoeff: null,
       startTime: Date.now(),
       bets: new Map(),
+      mockBetsCashoutSchedule: new Map(),
       serverSeed,
       clientsSeeds: [],
       combinedHash: '',
       decimal: '',
       isRunning: false,
+      version: 0,
+      lastSavedAt: Date.now(),
     };
 
     this.activeRound.crashCoeff = await this.calculateCrashCoefficient(serverSeed);
 
-    await this.saveActiveRoundToRedis();
+    // Generate mock bets using shared service
+    const mockBetsConfig: Partial<MockBetsConfig> = {
+      currency: 'INR',
+    };
+    const mockBets = generateMockBets(mockBetsConfig);
+    
+    // Ensure we have at least 15 mock bets
+    if (mockBets.length < 15) {
+      const additionalBets = generateMockBets(mockBetsConfig);
+      mockBets.push(...additionalBets.slice(0, 15 - mockBets.length));
+    }
+    
+    // Schedule cashouts for mock bets
+    if (this.activeRound.crashCoeff && mockBets.length > 0) {
+      const cashoutSchedule = scheduleMockBetsCashouts(mockBets, this.activeRound.crashCoeff);
+      this.activeRound.mockBetsCashoutSchedule = cashoutSchedule;
+    }
+    
+    this.pendingMockBets = mockBets;
 
-    this.logger.log(
-      `[SUGAR_DADDY] Started new round: roundId=${roundId} gameUUID=${gameUUID} crashCoeff=${this.activeRound.crashCoeff}`,
-    );
+    await this.saveActiveRoundToRedis();
 
     return this.activeRound;
   }
 
-  /**
-   * Transition from WAIT_GAME to IN_GAME
-   * Updates Redis state for multi-pod access
-   */
   async startGame(): Promise<void> {
     await this.loadActiveRoundFromRedis();
 
@@ -113,39 +134,18 @@ export class SugarDaddyGameService {
     this.activeRound.currentCoeff = this.MIN_COEFF;
 
     await this.saveActiveRoundToRedis();
-
-    this.logger.log(
-      `[SUGAR_DADDY] Game started: roundId=${this.activeRound.roundId}`,
-    );
   }
 
-  /**
-   * Get current game state
-   * Reads from Redis for multi-pod compatibility
-   */
   async getCurrentGameState(): Promise<GameStateChangePayload | null> {
     await this.loadActiveRoundFromRedis();
 
     if (!this.activeRound) {
-      this.logger.debug(`[GET_CURRENT_GAME_STATE] No active round found`);
       return null;
     }
 
-    const payload = await this.buildGameStatePayload();
-    
-    if (payload) {
-      this.logger.debug(
-        `[GET_CURRENT_GAME_STATE] Returning state: status=${payload.status} roundId=${payload.roundId} betsCount=${payload.bets.values.length}`,
-      );
-    }
-
-    return payload;
+    return await this.buildGameStatePayload();
   }
 
-  /**
-   * Get current coefficient
-   * Reads from Redis for multi-pod compatibility
-   */
   async getCurrentCoefficient(): Promise<CoefficientChangePayload | null> {
     await this.loadActiveRoundFromRedis();
 
@@ -158,19 +158,10 @@ export class SugarDaddyGameService {
     };
   }
 
-  /**
-   * Update coefficient during game
-   * Uses linear progression at fixed speed (no time limit)
-   * Also handles auto-cashout for bets with coeffAuto
-   * Saves to Redis for multi-pod access
-   */
   async updateCoefficient(): Promise<boolean> {
     await this.loadActiveRoundFromRedis();
 
     if (!this.activeRound || !this.activeRound.isRunning) {
-      this.logger.debug(
-        `[UPDATE_COEFF] Cannot update: activeRound=${!!this.activeRound} isRunning=${this.activeRound?.isRunning || false}`,
-      );
       return false;
     }
 
@@ -178,10 +169,8 @@ export class SugarDaddyGameService {
     const elapsedSeconds = elapsed / 1000;
     const crashCoeff = this.activeRound.crashCoeff || this.MAX_COEFF;
 
-    // Load coefficient speed from database or use default
     const speed = await this.loadCoefficientSpeed('sugar-daddy');
 
-    // Linear progression: coeff = MIN_COEFF + (elapsedSeconds × speed)
     const newCoeff = Math.min(
       this.MIN_COEFF + (elapsedSeconds * speed),
       crashCoeff,
@@ -193,13 +182,7 @@ export class SugarDaddyGameService {
     await this.saveCurrentCoefficientToRedis();
 
     if (this.activeRound.currentCoeff >= crashCoeff) {
-      this.logger.log(
-        `[UPDATE_COEFF] Coefficient reached crash point: currentCoeff=${this.activeRound.currentCoeff} crashCoeff=${crashCoeff} roundId=${this.activeRound.roundId} elapsed=${elapsedSeconds.toFixed(2)}s. Calling endRound()`,
-      );
       await this.endRound();
-      this.logger.log(
-        `[UPDATE_COEFF] endRound() completed, returning false to stop coefficient broadcast`,
-      );
       return false;
     }
 
@@ -210,7 +193,7 @@ export class SugarDaddyGameService {
    * Check and return bets that should be auto-cashed out
    * Returns array of bets that need auto-cashout processing
    */
-  async getAutoCashoutBets(): Promise<Array<{ playerGameId: string; bet: BetData }>> {
+  async getAutoCashoutBets(): Promise<Array<{ playerGameId: string; bet: BetData; isMockBet?: boolean }>> {
     await this.loadActiveRoundFromRedis();
 
     if (!this.activeRound) {
@@ -218,23 +201,41 @@ export class SugarDaddyGameService {
     }
 
     const currentCoeff = this.activeRound.currentCoeff;
-    const autoCashoutBets: Array<{ playerGameId: string; bet: BetData }> = [];
+    const autoCashoutBets: Array<{ playerGameId: string; bet: BetData; isMockBet?: boolean }> = [];
 
+    // Check all bets (real and mock) in the bets Map
     for (const [playerGameId, bet] of this.activeRound.bets.entries()) {
       if (bet.coeffWin && bet.winAmount) {
         continue;
       }
 
-      if (bet.coeffAuto) {
-        const autoCoeff = parseFloat(bet.coeffAuto);
-        const roundedCurrentCoeff = Math.round(currentCoeff * GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION) / GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION;
-        const roundedAutoCoeff = Math.round(autoCoeff * GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION) / GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION;
-        
-        if (roundedCurrentCoeff >= roundedAutoCoeff) {
-          this.logger.debug(
-            `[AUTO_CASHOUT_CHECK] Bet eligible: playerGameId=${playerGameId} betNumber=${bet.betNumber} currentCoeff=${roundedCurrentCoeff} autoCoeff=${roundedAutoCoeff}`,
-          );
-          autoCashoutBets.push({ playerGameId, bet });
+      const isMockBet = bet.userId.startsWith('mock_');
+
+      if (isMockBet) {
+        const schedule = this.activeRound.mockBetsCashoutSchedule.get(playerGameId);
+        if (schedule) {
+          const roundedCurrentCoeff = Math.round(currentCoeff * GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION) / GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION;
+          const roundedCashoutCoeff = Math.round(schedule.cashoutCoeff * GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION) / GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION;
+          
+          if (roundedCurrentCoeff >= roundedCashoutCoeff) {
+            this.logger.debug(
+              `[AUTO_CASHOUT_CHECK] Mock bet eligible: playerGameId=${playerGameId} currentCoeff=${roundedCurrentCoeff} cashoutCoeff=${roundedCashoutCoeff}`,
+            );
+            autoCashoutBets.push({ playerGameId, bet, isMockBet: true });
+          }
+        }
+      } else {
+        if (bet.coeffAuto) {
+          const autoCoeff = parseFloat(bet.coeffAuto);
+          const roundedCurrentCoeff = Math.round(currentCoeff * GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION) / GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION;
+          const roundedAutoCoeff = Math.round(autoCoeff * GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION) / GAME_CONSTANTS.COEFFICIENT.ROUNDING_PRECISION;
+          
+          if (roundedCurrentCoeff >= roundedAutoCoeff) {
+            this.logger.debug(
+              `[AUTO_CASHOUT_CHECK] Bet eligible: playerGameId=${playerGameId} betNumber=${bet.betNumber} currentCoeff=${roundedCurrentCoeff} autoCoeff=${roundedAutoCoeff}`,
+            );
+            autoCashoutBets.push({ playerGameId, bet, isMockBet: false });
+          }
         }
       }
     }
@@ -242,10 +243,6 @@ export class SugarDaddyGameService {
     return autoCashoutBets;
   }
 
-  /**
-   * Mark bet as auto-cashed out (called after settlement)
-   * Saves to Redis for multi-pod access
-   */
   async markBetAsAutoCashedOut(playerGameId: string, coeffWin: string, winAmount: string): Promise<void> {
     await this.loadActiveRoundFromRedis();
 
@@ -260,28 +257,15 @@ export class SugarDaddyGameService {
       this.activeRound.bets.set(playerGameId, bet);
 
       await this.saveActiveRoundToRedis();
-
-      this.logger.log(
-        `[AUTO_CASHOUT_MARKED] playerGameId=${playerGameId} coeff=${coeffWin} winAmount=${winAmount}`,
-      );
     }
   }
 
-  /**
-   * End the current round
-   * Saves state to Redis for multi-pod access
-   */
   async endRound(): Promise<void> {
     await this.loadActiveRoundFromRedis();
 
     if (!this.activeRound) {
-      this.logger.warn(`[END_ROUND] No active round to end`);
       return;
     }
-
-    this.logger.log(
-      `[END_ROUND] Starting endRound: roundId=${this.activeRound.roundId} currentStatus=${this.activeRound.status} crashCoeff=${this.activeRound.crashCoeff}`,
-    );
 
     this.activeRound.status = GameStatus.FINISH_GAME;
     this.activeRound.isRunning = false;
@@ -293,15 +277,8 @@ export class SugarDaddyGameService {
     await this.savePreviousBetsToRedis(finishedBets);
     await this.storeFinishedRound();
     await this.saveActiveRoundToRedis();
-
-    this.logger.log(
-      `[END_ROUND] ✅ Round ended successfully: roundId=${this.activeRound.roundId} status=${this.activeRound.status} crashCoeff=${this.activeRound.crashCoeff} previousBetsCount=${finishedBets.length} betsCount=${this.activeRound.bets.size}`,
-    );
   }
 
-  /**
-   * Calculate wins for all bets when round ends
-   */
   private calculateWins(): void {
     if (!this.activeRound) {
       return;
@@ -311,6 +288,14 @@ export class SugarDaddyGameService {
 
     for (const [playerGameId, bet] of this.activeRound.bets.entries()) {
       if (bet.coeffWin && bet.winAmount) {
+        continue;
+      }
+
+      const isMockBet = bet.userId.startsWith('mock_');
+      
+      if (isMockBet) {
+        bet.coeffWin = '0.00';
+        bet.winAmount = '0';
         continue;
       }
 
@@ -357,8 +342,6 @@ export class SugarDaddyGameService {
     }
 
     await this.saveActiveRoundToRedis();
-
-    this.logger.debug(`[SUGAR_DADDY] Bet added: playerGameId=${bet.playerGameId} amount=${bet.betAmount}`);
   }
 
   async cashOutBet(playerGameId: string, currentCoeff: number): Promise<BetData | null> {
@@ -398,17 +381,10 @@ export class SugarDaddyGameService {
     await this.loadActiveRoundFromRedis();
 
     if (!this.activeRound) {
-      this.logger.debug(`[GET_BET] No active round found for playerGameId=${playerGameId}`);
       return null;
     }
     
-    const bet = this.activeRound.bets.get(playerGameId);
-    if (!bet) {
-      this.logger.debug(
-        `[GET_BET] Bet not found in active round: playerGameId=${playerGameId} roundId=${this.activeRound.roundId} status=${this.activeRound.status} totalBets=${this.activeRound.bets.size}`,
-      );
-    }
-    return bet || null;
+    return this.activeRound.bets.get(playerGameId) || null;
   }
 
   async getUserBets(userId: string): Promise<BetData[]> {
@@ -434,7 +410,6 @@ export class SugarDaddyGameService {
     await this.loadActiveRoundFromRedis();
 
     if (!this.activeRound) {
-      this.logger.debug(`[GET_GAME_SEEDS] No active round found for userId=${userId}`);
       return null;
     }
 
@@ -456,8 +431,6 @@ export class SugarDaddyGameService {
       });
       
       await this.saveActiveRoundToRedis();
-      
-      this.logger.debug(`[GET_GAME_SEEDS] Generated new client seed for userId=${userId}`);
     }
 
     const hashedServerSeed = crypto
@@ -476,12 +449,71 @@ export class SugarDaddyGameService {
     return this.activeRound;
   }
 
+  async addMockBetsBatch(bets: BetData[]): Promise<void> {
+    await this.loadActiveRoundFromRedis();
+    if (!this.activeRound) {
+      return;
+    }
+
+    for (const bet of bets) {
+      this.activeRound.bets.set(bet.playerGameId, bet);
+
+      // CRITICAL: Add client seed for mock bets (treat them as real bets except wallet/DB)
+      // This ensures they can be included in fairness calculations and coefficient history
+      const existingClientSeed = this.activeRound.clientsSeeds.find(
+        (clientSeed) => clientSeed.userId === bet.userId,
+      );
+      
+      if (!existingClientSeed) {
+        const userSeed = crypto.randomBytes(8).toString('hex');
+        
+      this.activeRound.clientsSeeds.push({
+        userId: bet.userId,
+        seed: userSeed,
+        nickname: bet.nickname || `user${bet.userId}`,
+        gameAvatar: bet.gameAvatar || null,
+      });
+    }
+  }
+
+  await this.saveActiveRoundToRedis();
+  }
+
+  /**
+   * Get pending mock bets that haven't been added yet
+   */
+  getPendingMockBets(): BetData[] {
+    return this.pendingMockBets;
+  }
+
+  removePendingMockBets(bets: BetData[]): void {
+    const betIds = new Set(bets.map(b => b.playerGameId));
+    this.pendingMockBets = this.pendingMockBets.filter(b => !betIds.has(b.playerGameId));
+  }
+
   async clearActiveRound(): Promise<void> {
     const redisClient = this.redisService.getClient();
-    await redisClient.del(this.REDIS_KEY_ACTIVE_ROUND);
-    await redisClient.del(this.REDIS_KEY_CURRENT_STATE);
-    await redisClient.del(this.REDIS_KEY_CURRENT_COEFF);
-    this.activeRound = null;
+    const maxRetries = 3;
+    let retries = 0;
+    
+    while (retries < maxRetries) {
+      try {
+        await redisClient.del(this.REDIS_KEY_ACTIVE_ROUND);
+        await redisClient.del(this.REDIS_KEY_CURRENT_STATE);
+        await redisClient.del(this.REDIS_KEY_CURRENT_COEFF);
+        this.activeRound = null;
+        this.redisLoadCache = { data: null, timestamp: 0, version: 0 };
+        return;
+      } catch (error) {
+        retries++;
+        if (retries >= maxRetries) {
+          this.logger.error(`[CLEAR_ROUND] Failed after ${maxRetries} attempts: ${(error as Error).message}`);
+          await redisClient.expire(this.REDIS_KEY_ACTIVE_ROUND, 300).catch(() => {});
+          throw error;
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000 * retries));
+      }
+    }
   }
 
   /**
@@ -561,7 +593,9 @@ export class SugarDaddyGameService {
       const redisClient = this.redisService.getClient();
       const historyKey = this.REDIS_KEY_COEFFICIENT_HISTORY;
 
-      const historyData = await redisClient.lrange(historyKey, 0, limit - 1);
+      // For default limit (51), return indices 0-50 (51 items)
+      const endIndex = limit === this.COEFFICIENT_HISTORY_LIMIT ? 50 : limit - 1;
+      const historyData = await redisClient.lrange(historyKey, 0, endIndex);
 
       if (!historyData || historyData.length === 0) {
         return [];
@@ -578,6 +612,19 @@ export class SugarDaddyGameService {
         })
         .filter((entry): entry is CoefficientHistory => entry !== null);
 
+      // Redis rpush adds to end, lrange(0, 50) gets from start to end
+      // This gives us: [oldest, ..., newest] with oldest at index 0, newest at index 50
+      // This is the correct order - no need to reverse
+
+      // Debug log: Log how many entries retrieved and sample of clientsSeeds
+      if (history.length > 0) {
+        const sampleEntry = history[0];
+        const lastEntry = history[history.length - 1];
+        this.logger.debug(
+          `[CLIENTSSEEDS_DEBUG] getCoefficientsHistory: Retrieved ${history.length} entries, first entry (oldest) gameId=${sampleEntry.gameId} clientsSeedsCount=${sampleEntry.clientsSeeds?.length || 0}, last entry (newest) gameId=${lastEntry.gameId} clientsSeedsCount=${lastEntry.clientsSeeds?.length || 0}`,
+        );
+      }
+
       return history;
     } catch (error) {
       this.logger.error(`[COEFF_HISTORY] Error fetching coefficient history: ${error.message}`);
@@ -585,56 +632,54 @@ export class SugarDaddyGameService {
     }
   }
 
-  /**
-   * Store finished round in Redis coefficient history
-   */
   private async storeFinishedRound(): Promise<void> {
     if (!this.activeRound || !this.activeRound.crashCoeff) {
       return;
     }
 
     try {
-      // Save the current status before any reloads to preserve FINISH_GAME state
-      const currentStatus = this.activeRound.status;
-      this.logger.debug(
-        `[COEFF_HISTORY] Saving status before reload: status=${currentStatus} roundId=${this.activeRound.roundId}`,
-      );
+      const preservedState = {
+        status: this.activeRound.status,
+        clientsSeeds: [...this.activeRound.clientsSeeds],
+        bets: new Map(this.activeRound.bets), // Preserve bets data for winner calculation
+        crashCoeff: this.activeRound.crashCoeff,
+        roundId: this.activeRound.roundId,
+      };
       
-      // Reload from Redis to ensure we have latest clientsSeeds
       await this.loadActiveRoundFromRedis();
       
       if (!this.activeRound) {
-        this.logger.error(`[COEFF_HISTORY] Active round is null after reload`);
+        this.logger.error(`[STORE_FINISHED_ROUND] activeRound is null after reload from Redis`);
         return;
       }
       
-      // Restore the status that was set before reload (FINISH_GAME)
-      // This is critical because loadActiveRoundFromRedis() loads the old state from Redis
-      const reloadedStatus = this.activeRound.status;
-      this.activeRound.status = currentStatus;
-      this.logger.debug(
-        `[COEFF_HISTORY] Restored status after reload: was=${reloadedStatus} restored=${currentStatus} roundId=${this.activeRound.roundId}`,
-      );
-
-      // Get top 3 clientsSeeds (first 3 available, no sorting)
-      const topClientsSeeds = this.getTopClientsSeeds(3);
+      this.activeRound.status = preservedState.status;
+      this.activeRound.crashCoeff = preservedState.crashCoeff;
       
-      this.logger.log(
-        `[COEFF_HISTORY] Preparing to store: roundId=${this.activeRound.roundId} clientsSeedsCount=${topClientsSeeds.length} activeRoundClientsSeedsCount=${this.activeRound.clientsSeeds?.length || 0}`,
-      );
+      if (preservedState.clientsSeeds.length > 0) {
+        const existingUserIds = new Set(this.activeRound.clientsSeeds.map(cs => cs.userId));
+        for (const seed of preservedState.clientsSeeds) {
+          if (!existingUserIds.has(seed.userId)) {
+            this.activeRound.clientsSeeds.push(seed);
+          }
+        }
+      }
+      
+      if (preservedState.bets.size > 0) {
+        for (const [playerGameId, bet] of preservedState.bets.entries()) {
+          if (!this.activeRound.bets.has(playerGameId)) {
+            this.activeRound.bets.set(playerGameId, bet);
+          } else {
+            this.activeRound.bets.set(playerGameId, bet);
+          }
+        }
+      }
 
-      let combinedHash = this.activeRound.combinedHash;
-      let decimal = this.activeRound.decimal;
+      const topClientsSeeds = this.buildTopClientsSeeds();
+      const combinedHash = this.activeRound.combinedHash || this.calculateCombinedHash();
+      const decimal = this.activeRound.decimal || this.calculateDecimal(combinedHash);
 
-      // For hash calculation, use all clientsSeeds (not just top 3) to maintain fairness
-      if (!combinedHash || !decimal) {
-        const seedString = this.activeRound.serverSeed +
-          this.activeRound.clientsSeeds.map(c => c.seed).join('');
-        combinedHash = crypto.createHash('sha256').update(seedString).digest('hex');
-
-        const hexValue = combinedHash.substring(0, 16);
-        decimal = (parseInt(hexValue, 16) / Math.pow(16, 16)).toExponential();
-
+      if (!this.activeRound.combinedHash) {
         this.activeRound.combinedHash = combinedHash;
         this.activeRound.decimal = decimal;
       }
@@ -649,24 +694,118 @@ export class SugarDaddyGameService {
         decimal: decimal,
       };
 
-      this.logger.debug(
-        `[COEFF_HISTORY] Storing finished round: roundId=${this.activeRound.roundId} coeff=${this.activeRound.crashCoeff} clientsSeedsCount=${historyEntry.clientsSeeds.length}`,
-      );
-
       const redisClient = this.redisService.getClient();
       const historyKey = this.REDIS_KEY_COEFFICIENT_HISTORY;
 
-      await redisClient.lpush(historyKey, JSON.stringify(historyEntry));
-      await redisClient.ltrim(historyKey, 0, this.COEFFICIENT_HISTORY_LIMIT - 1);
-
-      this.logger.debug(
-        `[COEFF_HISTORY] Stored finished round: roundId=${this.activeRound.roundId} coeff=${this.activeRound.crashCoeff}`,
-      );
+      await redisClient.rpush(historyKey, JSON.stringify(historyEntry));
+      await redisClient.ltrim(historyKey, -this.COEFFICIENT_HISTORY_LIMIT, -1);
     } catch (error) {
-      this.logger.error(
-        `[COEFF_HISTORY] Error storing finished round: ${error.message}`,
-      );
+      this.logger.error(`[COEFF_HISTORY] Error: ${(error as Error).message}`);
     }
+  }
+
+  buildTopClientsSeeds(): Array<{ userId: string; seed: string; nickname: string; gameAvatar: number | null }> {
+    if (!this.activeRound) return [];
+
+    const allWinners: Array<{ bet: BetData; winAmount: number }> = [];
+    
+    for (const bet of this.activeRound.bets.values()) {
+      if (bet.coeffWin && bet.winAmount) {
+        const winAmount = parseFloat(bet.winAmount || '0');
+        if (winAmount > 0) {
+          allWinners.push({ bet, winAmount });
+        }
+      }
+    }
+    
+    allWinners.sort((a, b) => b.winAmount - a.winAmount);
+    const top3Winners = allWinners.slice(0, 3);
+    
+    const topClientsSeeds: Array<{ userId: string; seed: string; nickname: string; gameAvatar: number | null }> = [];
+    const usedUserIds = new Set<string>();
+    
+    for (const { bet } of top3Winners) {
+      const existingSeed = this.activeRound.clientsSeeds.find(cs => cs.userId === bet.userId);
+      if (existingSeed) {
+        topClientsSeeds.push(existingSeed);
+        usedUserIds.add(bet.userId);
+      } else {
+        topClientsSeeds.push({
+          userId: bet.userId,
+          seed: crypto.randomBytes(8).toString('hex'),
+          nickname: bet.nickname || `user${bet.userId}`,
+          gameAvatar: bet.gameAvatar || null,
+        });
+        usedUserIds.add(bet.userId);
+      }
+    }
+    
+    if (topClientsSeeds.length < 3 && this.activeRound.clientsSeeds.length > 0) {
+      for (const clientSeed of this.activeRound.clientsSeeds) {
+        if (topClientsSeeds.length >= 3) break;
+        if (!usedUserIds.has(clientSeed.userId)) {
+          topClientsSeeds.push(clientSeed);
+          usedUserIds.add(clientSeed.userId);
+        }
+      }
+    }
+    
+    if (topClientsSeeds.length === 0) {
+      return this.getTopClientsSeeds(3);
+    }
+    
+    return topClientsSeeds;
+  }
+
+  private calculateCombinedHash(): string {
+    if (!this.activeRound) return '';
+    const seedString = this.activeRound.serverSeed + this.activeRound.clientsSeeds.map(c => c.seed).join('');
+    return crypto.createHash('sha256').update(seedString).digest('hex');
+  }
+
+  private calculateDecimal(combinedHash: string): string {
+    const hexValue = combinedHash.substring(0, 16);
+    return (parseInt(hexValue, 16) / Math.pow(16, 16)).toExponential();
+  }
+
+  /**
+   * Generate mock bets for display purposes
+   * Target total: 15k-20k (90% of time), 20k-25k (10% of time)
+   * Individual bet amounts: 10-3,000 INR (multiples of 5)
+   * Minimum 15 bets always
+   */
+  // Mock bet generation methods moved to shared/mock-bets.service.ts
+
+  /**
+   * Process mock bet cashout (display only, no wallet/database operations)
+   */
+  private processMockBetCashout(playerGameId: string, bet: BetData, coeffWin: number): void {
+    if (!this.activeRound) {
+      return;
+    }
+
+    // Update mock bet with cashout info
+    bet.coeffWin = coeffWin.toFixed(2);
+    const betAmount = parseFloat(bet.betAmount || '0');
+    const winAmount = Math.round(betAmount * coeffWin); // Round to full number
+    bet.winAmount = winAmount.toString(); // Store as full number string
+
+    // Update in bets map
+    this.activeRound.bets.set(playerGameId, bet);
+
+    // Remove from cashout schedule
+    this.activeRound.mockBetsCashoutSchedule.delete(playerGameId);
+
+    this.logger.debug(
+      `[MOCK_BET_CASHOUT] Processed mock bet cashout: playerGameId=${playerGameId} coeffWin=${coeffWin.toFixed(2)} winAmount=${winAmount}`,
+    );
+  }
+
+  /**
+   * Check if a bet is a mock bet
+   */
+  private isMockBet(bet: BetData): boolean {
+    return bet.userId.startsWith('mock_');
   }
 
   /**
@@ -839,6 +978,26 @@ export class SugarDaddyGameService {
 
     if (this.activeRound) {
       this.activeRound.bets.set(playerGameId, betData);
+
+      // CRITICAL: Add client seed for this user if it doesn't exist
+      // This ensures fairness data can be generated later
+      const existingClientSeed = this.activeRound.clientsSeeds.find(
+        (clientSeed) => clientSeed.userId === pendingBet.userId,
+      );
+      
+      if (!existingClientSeed) {
+        const userSeed = crypto.randomBytes(8).toString('hex');
+        
+        this.activeRound.clientsSeeds.push({
+          userId: pendingBet.userId,
+          seed: userSeed,
+          nickname: pendingBet.nickname || `user${pendingBet.userId}`,
+          gameAvatar: pendingBet.gameAvatar || null,
+        });
+        
+        this.logger.debug(`[ADD_PENDING_BET] Generated client seed for userId=${pendingBet.userId}`);
+      }
+
       await this.saveActiveRoundToRedis();
     }
 
@@ -849,11 +1008,6 @@ export class SugarDaddyGameService {
     return betData;
   }
 
-  /**
-   * Save active round to Redis for multi-pod access
-   * Made public so bet service can save after bet cancellation
-   * @throws Error if Redis operation fails critically
-   */
   async saveActiveRoundToRedis(): Promise<void> {
     if (!this.activeRound) {
       return;
@@ -862,7 +1016,11 @@ export class SugarDaddyGameService {
     try {
       const redisClient = this.redisService.getClient();
 
+      this.activeRound.version = (this.activeRound.version || 0) + 1;
+      this.activeRound.lastSavedAt = Date.now();
+
       const betsArray = Array.from(this.activeRound.bets.entries());
+      const mockBetsCashoutScheduleArray = Array.from(this.activeRound.mockBetsCashoutSchedule.entries());
 
       const roundData = {
         roundId: this.activeRound.roundId,
@@ -872,57 +1030,81 @@ export class SugarDaddyGameService {
         crashCoeff: this.activeRound.crashCoeff,
         startTime: this.activeRound.startTime,
         bets: betsArray,
+        mockBetsCashoutSchedule: mockBetsCashoutScheduleArray,
         serverSeed: this.activeRound.serverSeed,
         clientsSeeds: this.activeRound.clientsSeeds,
         combinedHash: this.activeRound.combinedHash,
         decimal: this.activeRound.decimal,
         isRunning: this.activeRound.isRunning,
+        version: this.activeRound.version,
+        lastSavedAt: this.activeRound.lastSavedAt,
       };
 
       await redisClient.set(this.REDIS_KEY_ACTIVE_ROUND, JSON.stringify(roundData));
+
+      const saved = await redisClient.get(this.REDIS_KEY_ACTIVE_ROUND);
+      if (!saved) {
+        throw new Error('Save verification failed');
+      }
 
       const gameState = await this.buildGameStatePayload();
       if (gameState) {
         await redisClient.set(this.REDIS_KEY_CURRENT_STATE, JSON.stringify(gameState));
       }
+
+      this.redisLoadCache = {
+        data: this.activeRound,
+        timestamp: Date.now(),
+        version: this.activeRound.version,
+      };
     } catch (error: any) {
-      const errorMessage = error?.message || 'Unknown error';
-      const errorStack = error?.stack || '';
-      this.logger.error(
-        `[REDIS_SAVE] Error saving active round: ${errorMessage}. RoundId: ${this.activeRound?.roundId}`,
-        errorStack,
-      );
-      // Don't throw - allow game to continue with in-memory state
-      // Redis failures should not crash the game, but should be monitored
+      if (this.activeRound) {
+        this.activeRound.version = Math.max(0, (this.activeRound.version || 1) - 1);
+      }
+      this.logger.error(`[REDIS_SAVE] Error: ${error?.message || 'Unknown'}. RoundId: ${this.activeRound?.roundId}`);
     }
   }
 
-  /**
-   * Load active round from Redis
-   * On failure, keeps existing in-memory state if available
-   */
   private async loadActiveRoundFromRedis(): Promise<void> {
     try {
       const redisClient = this.redisService.getClient();
       const roundDataStr = await redisClient.get(this.REDIS_KEY_ACTIVE_ROUND);
 
       if (!roundDataStr) {
-        // No round in Redis - this is normal if no round has started yet
         if (this.activeRound) {
-          this.logger.warn(
-            `[REDIS_LOAD] No round data in Redis but in-memory round exists. RoundId: ${this.activeRound.roundId}`,
-          );
+          this.logger.warn(`[REDIS_LOAD] No Redis data but in-memory exists. RoundId: ${this.activeRound.roundId}`);
         }
         this.activeRound = null;
+        this.redisLoadCache = { data: null, timestamp: 0, version: 0 };
         return;
       }
 
       const roundData = JSON.parse(roundDataStr);
+      
+      if (this.activeRound && roundData.version && this.activeRound.version && this.activeRound.version > roundData.version) {
+        this.logger.warn(`[REDIS_SYNC] In-memory v${this.activeRound.version} > Redis v${roundData.version}. Syncing...`);
+        await this.saveActiveRoundToRedis();
+        return;
+      }
 
       const betsMap = new Map<string, BetData>();
       if (roundData.bets && Array.isArray(roundData.bets)) {
         for (const [key, value] of roundData.bets) {
           betsMap.set(key, value as BetData);
+        }
+      }
+
+      // Handle backward compatibility: merge old mockBets into bets if they exist
+      if (roundData.mockBets && Array.isArray(roundData.mockBets)) {
+        for (const [key, value] of roundData.mockBets) {
+          betsMap.set(key, value as BetData);
+        }
+      }
+
+      const mockBetsCashoutScheduleMap = new Map<string, { playerGameId: string; cashoutCoeff: number }>();
+      if (roundData.mockBetsCashoutSchedule && Array.isArray(roundData.mockBetsCashoutSchedule)) {
+        for (const [key, value] of roundData.mockBetsCashoutSchedule) {
+          mockBetsCashoutScheduleMap.set(key, value as { playerGameId: string; cashoutCoeff: number });
         }
       }
 
@@ -945,23 +1127,20 @@ export class SugarDaddyGameService {
         crashCoeff: roundData.crashCoeff,
         startTime: roundData.startTime,
         bets: betsMap,
+        mockBetsCashoutSchedule: mockBetsCashoutScheduleMap,
         serverSeed: roundData.serverSeed,
         clientsSeeds: clientsSeeds,
         combinedHash: roundData.combinedHash || '',
         decimal: roundData.decimal || '',
         isRunning: roundData.isRunning || false,
+        version: roundData.version || 0,
+        lastSavedAt: roundData.lastSavedAt || Date.now(),
       };
     } catch (error: any) {
-      const errorMessage = error?.message || 'Unknown error';
-      const errorStack = error?.stack || '';
-      this.logger.error(
-        `[REDIS_LOAD] Error loading active round: ${errorMessage}. Keeping existing in-memory state if available.`,
-        errorStack,
-      );
-      // Don't clear activeRound on error - keep in-memory state as fallback
-      // Only clear if we're sure there's no round
+      this.logger.error(`[REDIS_LOAD] Error: ${error?.message || 'Unknown'}`);
       if (!this.activeRound) {
         this.activeRound = null;
+        this.redisLoadCache = { data: null, timestamp: 0, version: 0 };
       }
     }
   }
@@ -1034,18 +1213,56 @@ export class SugarDaddyGameService {
       return null;
     }
 
-    const actualBets: BetData[] = Array.from(this.activeRound.bets.values())
+    // Get all bets (real and mock) from bets Map
+    // Strip "mock_" prefix from userId for UI display (users shouldn't see it's a mock bet)
+    const allBets: BetData[] = Array.from(this.activeRound.bets.values())
+      .map(bet => {
+        const cleanBet = { ...bet };
+        if (cleanBet.userId.startsWith('mock_')) {
+          cleanBet.userId = cleanBet.userId.replace(/^mock_/, '');
+        }
+        return cleanBet;
+      })
       .sort((a, b) => parseFloat(b.betAmount || '0') - parseFloat(a.betAmount || '0')); // Sort by betAmount descending
-    const totalBetsAmount = actualBets.reduce(
-      (sum, bet) => sum + parseFloat(bet.betAmount || '0'),
-      0,
-    );
+    
+    // State-based previous bets logic
+    let finalBets: BetData[] = [];
+    let finalPreviousBets: BetData[] = [];
+    let totalBetsAmount = 0;
+    let previousBetsTotalAmount = 0;
 
-    const previousBets = await this.getPreviousBetsFromRedis();
-    const previousBetsTotalAmount = previousBets.reduce(
-      (sum, bet) => sum + parseFloat(bet.betAmount || '0'),
-      0,
-    );
+    if (this.activeRound.status === GameStatus.WAIT_GAME) {
+      // WAIT_GAME: Show current bets + previous bets separately
+      const previousBets = await this.getPreviousBetsFromRedis();
+      finalBets = allBets; // Current round bets
+      finalPreviousBets = previousBets; // Previous round bets
+      totalBetsAmount = allBets.reduce(
+        (sum, bet) => sum + parseFloat(bet.betAmount || '0'),
+        0,
+      );
+      previousBetsTotalAmount = previousBets.reduce(
+        (sum, bet) => sum + parseFloat(bet.betAmount || '0'),
+        0,
+      );
+    } else if (this.activeRound.status === GameStatus.FINISH_GAME) {
+      // FINISH_GAME: Show the bets that just finished in bets.values
+      finalBets = allBets; // These are the bets from the round that just finished
+      finalPreviousBets = []; // Empty - previous bets not shown
+      totalBetsAmount = allBets.reduce(
+        (sum, bet) => sum + parseFloat(bet.betAmount || '0'),
+        0,
+      );
+      previousBetsTotalAmount = 0;
+    } else {
+      // IN_GAME: Show only current bets
+      finalBets = allBets; // Current round bets
+      finalPreviousBets = []; // Empty - previous bets not shown
+      totalBetsAmount = allBets.reduce(
+        (sum, bet) => sum + parseFloat(bet.betAmount || '0'),
+        0,
+      );
+      previousBetsTotalAmount = 0;
+    }
 
     let waitTime: number | null = null;
     if (this.activeRound.status === GameStatus.WAIT_GAME) {
@@ -1060,17 +1277,119 @@ export class SugarDaddyGameService {
       waitTime,
       bets: {
         totalBetsAmount,
-        values: actualBets,
+        values: finalBets,
       },
       previousBets: {
         totalBetsAmount: previousBetsTotalAmount,
-        values: previousBets,
+        values: finalPreviousBets,
       },
     };
 
-    if (this.activeRound.status === GameStatus.FINISH_GAME && this.activeRound.crashCoeff) {
-      payload.coeffCrash = this.activeRound.crashCoeff;
-      payload.coefficients = await this.getCoefficientsHistory(this.COEFFICIENT_HISTORY_LIMIT);
+    if (this.activeRound && this.activeRound.status === GameStatus.FINISH_GAME && this.activeRound.crashCoeff) {
+      const activeRound = this.activeRound; // Store reference to avoid null check issues
+      const crashCoeff = activeRound.crashCoeff!; // Non-null assertion: we know it's not null from the condition
+      payload.coeffCrash = crashCoeff;
+      
+      // Fetch existing history
+      const existingHistory = await this.getCoefficientsHistory(this.COEFFICIENT_HISTORY_LIMIT);
+      
+      // Get top 3 clientsSeeds (same logic as storeFinishedRound)
+      let topClientsSeeds = this.getTopClientsSeeds(3);
+      
+      // Include top 3 mock bet winners (mixed with actual, prioritizing actual)
+      const allWinners: Array<{ bet: BetData; winAmount: number }> = [];
+      
+      // Collect all bet winners (real and mock)
+      for (const bet of activeRound.bets.values()) {
+        if (bet.coeffWin && bet.winAmount) {
+          const winAmount = parseFloat(bet.winAmount || '0');
+          allWinners.push({ bet, winAmount });
+        }
+      }
+      
+      // Sort by winAmount descending and take top 3
+      allWinners.sort((a, b) => b.winAmount - a.winAmount);
+      const top3Winners = allWinners.slice(0, 3);
+      
+      // Convert top 3 winners to clientsSeeds format, prioritizing actual bets
+      const top3ClientsSeeds: Array<{
+        userId: string;
+        seed: string;
+        nickname: string;
+        gameAvatar: number | null;
+      }> = [];
+      
+      for (const { bet } of top3Winners) {
+        // Check if this user already exists in topClientsSeeds (from actual bets)
+        const existingSeed = topClientsSeeds.find(cs => cs.userId === bet.userId);
+        if (existingSeed) {
+          top3ClientsSeeds.push(existingSeed);
+        } else {
+          // For mock bets or bets not in clientsSeeds, create entry
+          const userClientSeed = activeRound.clientsSeeds.find(cs => cs.userId === bet.userId);
+          top3ClientsSeeds.push({
+            userId: bet.userId,
+            seed: userClientSeed?.seed || crypto.randomBytes(8).toString('hex'),
+            nickname: bet.nickname || `user${bet.userId}`,
+            gameAvatar: bet.gameAvatar || null,
+          });
+        }
+      }
+      
+      // Use top 3 winners if we have any, otherwise fall back to original topClientsSeeds
+      if (top3ClientsSeeds.length > 0) {
+        topClientsSeeds = top3ClientsSeeds;
+      }
+      
+      // Debug log: Log clientsSeeds in FINISH_GAME state
+      this.logger.debug(
+        `[CLIENTSSEEDS_DEBUG] buildGameStatePayload FINISH_GAME: topClientsSeeds count=${topClientsSeeds.length} contents=${JSON.stringify(topClientsSeeds.map(cs => ({ userId: cs.userId, nickname: cs.nickname })))}`,
+      );
+      
+      // Construct current round's coefficient history entry
+      const currentRoundEntry: CoefficientHistory = {
+        coeff: crashCoeff,
+        gameId: activeRound.roundId,
+        gameUUID: activeRound.gameUUID,
+        serverSeed: activeRound.serverSeed,
+        clientsSeeds: topClientsSeeds,
+        combinedHash: activeRound.combinedHash,
+        decimal: activeRound.decimal,
+      };
+      
+      // Debug log: Log what's being set in currentRoundEntry.clientsSeeds
+      this.logger.debug(
+        `[CLIENTSSEEDS_DEBUG] buildGameStatePayload FINISH_GAME: currentRoundEntry.clientsSeeds count=${currentRoundEntry.clientsSeeds.length} for gameId=${currentRoundEntry.gameId}`,
+      );
+      
+      // Check if current round is already in history (by gameId)
+      const currentRoundInHistory = existingHistory.find(h => h.gameId === activeRound.roundId);
+      
+      let finalCoefficients: CoefficientHistory[];
+      if (!currentRoundInHistory) {
+        // Append current round to history (it's the newest, should be at index 50)
+        // existingHistory is already oldest to newest, so append makes it oldest at 0, newest at end
+        finalCoefficients = [...existingHistory, currentRoundEntry].slice(-this.COEFFICIENT_HISTORY_LIMIT);
+      } else {
+        // Current round already in history, use as-is
+        finalCoefficients = existingHistory;
+      }
+      
+      // Ensure order is correct: oldest at index 0, newest at index 50
+      // Verify by checking if the last item has a higher gameId than the first (newer rounds have higher gameIds)
+      if (finalCoefficients.length > 1) {
+        const firstGameId = finalCoefficients[0]?.gameId || 0;
+        const lastGameId = finalCoefficients[finalCoefficients.length - 1]?.gameId || 0;
+        if (lastGameId < firstGameId) {
+          // Order is reversed, fix it
+          this.logger.warn(
+            `[COEFF_HISTORY] Coefficient history order is reversed, fixing it. First gameId=${firstGameId}, Last gameId=${lastGameId}`,
+          );
+          finalCoefficients.reverse();
+        }
+      }
+      
+      payload.coefficients = finalCoefficients;
     }
 
     return payload;
@@ -1094,16 +1413,18 @@ export class SugarDaddyGameService {
       );
 
       if (result === 'OK') {
-        this.logger.log(`[LEADER_ELECTION] Pod ${podId} acquired leader lock`);
+        this.logger.log(`[LEADER_ELECTION] ✅ Pod ${podId} acquired leader lock`);
         return true;
       }
 
       const currentLeader = await redisClient.get(lockKey);
       if (currentLeader === podId) {
+        this.logger.log(`[LEADER_ELECTION] ✅ Pod ${podId} already holds leader lock (renewing)`);
         await redisClient.expire(lockKey, this.LEADER_LOCK_TTL);
         return true;
       }
 
+      this.logger.debug(`[LEADER_ELECTION] ❌ Pod ${podId} failed to acquire lock - current leader: ${currentLeader || 'unknown'}`);
       return false;
     } catch (error) {
       this.logger.error(`[LEADER_ELECTION] Error acquiring lock: ${error.message}`);
@@ -1254,7 +1575,7 @@ export class SugarDaddyGameService {
       if (speedRaw && speedRaw !== '{}') {
         const speed = parseFloat(speedRaw);
         if (!isNaN(speed) && speed > 0 && speed <= 10) {
-          this.logger.debug(`[loadCoefficientSpeed] Loaded speed=${speed} from database for ${gameCode}`);
+          // Log removed to reduce log size - speed loading is working normally
           return speed;
         } else {
           this.logger.warn(

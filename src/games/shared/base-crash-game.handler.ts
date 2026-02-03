@@ -855,62 +855,84 @@ export abstract class BaseCrashGameHandler implements IGameHandler {
   }
 
   startCoefficientBroadcast(gameCode: string | null = null): void {
-    if (this.coefficientUpdateInterval) {
-      this.stopCoefficientBroadcast();
-    }
-
-    this.coefficientUpdateInterval = setInterval(async () => {
-      const activeRound = await this.gameService.getActiveRound();
-
-      if (activeRound && activeRound.status === GameStatus.IN_GAME && activeRound.isRunning) {
-        const updated = await this.gameService.updateCoefficient();
-
-        const coeff = await this.gameService.getCurrentCoefficient();
-        if (coeff) {
-          this.broadcastCoefficientUpdate(gameCode, coeff);
-        }
-
-        const autoCashoutBets = await this.gameService.getAutoCashoutBets();
-        if (autoCashoutBets.length > 0) {
-          for (const { playerGameId, bet } of autoCashoutBets) {
-            this.processAutoCashout(playerGameId, bet, gameCode).catch((error) => {
-              this.logger.error(
-                `Failed to process auto-cashout for playerGameId=${playerGameId}: ${error.message}`,
-              );
-            });
-          }
-        }
-
-        if (!updated) {
-          this.logger.log(
-            `Coefficient update returned false, round ended. Stopping broadcast and transitioning to FINISH_GAME`,
-          );
-          this.stopCoefficientBroadcast();
-          
-          const gameState = await this.gameService.getCurrentGameState();
-          if (gameState) {
-            this.logger.log(
-              `Round ended, preparing to broadcast FINISH_GAME state: roundId=${gameState.roundId} status=${gameState.status} crashCoeff=${gameState.coeffCrash || 'N/A'} betsCount=${gameState.bets.values.length} hasCoefficients=${!!gameState.coefficients}`,
-            );
-            this.broadcastGameStateChange(gameCode, gameState);
-            this.logger.log(
-              `FINISH_GAME state broadcasted via coefficient broadcast`,
-            );
-          } else {
-            this.logger.error(
-              `Failed to get game state after round ended`,
-            );
-          }
-          
-          if (this.onRoundEndCallback) {
-            this.logger.log(`Calling onRoundEndCallback`);
-            this.onRoundEndCallback();
-          }
-        }
-      } else {
+    try {
+      if (this.coefficientUpdateInterval) {
         this.stopCoefficientBroadcast();
       }
-    }, 200);
+
+      this.logger.log(`[COEFF_BROADCAST] Starting coefficient broadcast for gameCode=${gameCode || this.gameCode}`);
+      this.coefficientUpdateInterval = setInterval(async () => {
+        try {
+          const activeRound = await this.gameService.getActiveRound();
+
+          if (activeRound && activeRound.status === GameStatus.IN_GAME && activeRound.isRunning) {
+            const updated = await this.gameService.updateCoefficient();
+
+            const coeff = await this.gameService.getCurrentCoefficient();
+            if (coeff) {
+              this.broadcastCoefficientUpdate(gameCode, coeff);
+            }
+
+            const autoCashoutBets = await this.gameService.getAutoCashoutBets();
+            if (autoCashoutBets.length > 0) {
+              for (const { playerGameId, bet } of autoCashoutBets) {
+                this.processAutoCashout(playerGameId, bet, gameCode).catch((error) => {
+                  const errorMessage = error instanceof Error ? error.message : String(error);
+                  this.logger.error(
+                    `[AUTO_CASHOUT_ERROR] Failed to process auto-cashout for playerGameId=${playerGameId}: ${errorMessage}`,
+                  );
+                });
+              }
+            }
+
+            // Process mock bet cashouts
+            await this.processMockBetCashouts(gameCode);
+
+            if (!updated) {
+              this.logger.log(
+                `[COEFF_BROADCAST] Coefficient update returned false, round ended. Stopping broadcast and transitioning to FINISH_GAME`,
+              );
+              this.stopCoefficientBroadcast();
+              
+              const gameState = await this.gameService.getCurrentGameState();
+              if (gameState) {
+                this.logger.log(
+                  `[COEFF_BROADCAST] Round ended, preparing to broadcast FINISH_GAME state: roundId=${gameState.roundId} status=${gameState.status} crashCoeff=${gameState.coeffCrash || 'N/A'} betsCount=${gameState.bets.values.length} hasCoefficients=${!!gameState.coefficients}`,
+                );
+                this.broadcastGameStateChange(gameCode, gameState);
+                this.logger.log(
+                  `[COEFF_BROADCAST] ✅ FINISH_GAME state broadcasted via coefficient broadcast`,
+                );
+              } else {
+                this.logger.error(
+                  `[COEFF_BROADCAST] ❌ Failed to get game state after round ended`,
+                );
+              }
+              
+              if (this.onRoundEndCallback) {
+                this.logger.log(`[COEFF_BROADCAST] Calling onRoundEndCallback`);
+                this.onRoundEndCallback();
+              }
+            }
+          } else {
+            this.stopCoefficientBroadcast();
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorStack = error instanceof Error ? error.stack : undefined;
+          this.logger.error(
+            `[COEFF_BROADCAST] Error in coefficient broadcast interval: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
+          );
+          // Don't stop the interval on error - let it continue trying
+        }
+      }, 200);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        `[COEFF_BROADCAST] Error starting coefficient broadcast: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
+      );
+    }
   }
 
   stopCoefficientBroadcast(): void {
@@ -921,31 +943,61 @@ export abstract class BaseCrashGameHandler implements IGameHandler {
   }
 
   startGameStateBroadcast(gameCode: string | null = null): void {
-    if (this.gameStateBroadcastInterval) {
-      this.stopGameStateBroadcast();
+    try {
+      if (this.gameStateBroadcastInterval) {
+        this.stopGameStateBroadcast();
+      }
+
+      this.logger.log(`[GAME_STATE_BROADCAST] Starting game state broadcast for gameCode=${gameCode || this.gameCode}`);
+      
+      this.gameService.getCurrentGameState()
+        .then((initialGameState) => {
+          if (initialGameState) {
+            this.logger.log(
+              `[GAME_STATE_BROADCAST] Broadcasting initial game state: status=${initialGameState.status} roundId=${initialGameState.roundId}`,
+            );
+            this.broadcastGameStateChange(gameCode, initialGameState);
+          } else {
+            this.logger.warn(`[GAME_STATE_BROADCAST] No initial game state available`);
+          }
+        })
+        .catch((error) => {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.logger.error(`[GAME_STATE_BROADCAST] Error getting initial game state: ${errorMessage}`);
+        });
+
+      this.logger.log(`[GAME_STATE_BROADCAST] Starting periodic game state broadcast (every 3s) for gameCode=${gameCode || this.gameCode}`);
+      this.gameStateBroadcastInterval = setInterval(async () => {
+        try {
+          const gameState = await this.gameService.getCurrentGameState();
+          if (gameState) {
+            // Skip broadcasting FINISH_GAME state in periodic interval to reduce redundant broadcasts
+            // FINISH_GAME is already broadcasted explicitly by coefficient broadcast and scheduler's endRound
+            if (gameState.status === GameStatus.FINISH_GAME) {
+              return;
+            }
+            this.logger.debug(
+              `[GAME_STATE_BROADCAST] Periodic broadcast: status=${gameState.status} roundId=${gameState.roundId} betsCount=${gameState.bets.values.length}`,
+            );
+            this.broadcastGameStateChange(gameCode, gameState);
+          } else {
+            this.logger.warn(`[GAME_STATE_BROADCAST] No game state available for periodic broadcast`);
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorStack = error instanceof Error ? error.stack : undefined;
+          this.logger.error(
+            `[GAME_STATE_BROADCAST] Error in periodic broadcast: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
+          );
+        }
+      }, 3000);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        `[GAME_STATE_BROADCAST] Error starting game state broadcast: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
+      );
     }
-
-    this.gameService.getCurrentGameState().then((initialGameState) => {
-      if (initialGameState) {
-        this.logger.log(
-          `Broadcasting initial game state: status=${initialGameState.status} roundId=${initialGameState.roundId}`,
-        );
-        this.broadcastGameStateChange(gameCode, initialGameState);
-      }
-    });
-
-    this.logger.log(`Starting periodic game state broadcast (every 3s) for gameCode=${gameCode}`);
-    this.gameStateBroadcastInterval = setInterval(async () => {
-      const gameState = await this.gameService.getCurrentGameState();
-      if (gameState) {
-        this.logger.debug(
-          `Periodic broadcast: status=${gameState.status} roundId=${gameState.roundId} betsCount=${gameState.bets.values.length}`,
-        );
-        this.broadcastGameStateChange(gameCode, gameState);
-      } else {
-        this.logger.warn(`No game state available for periodic broadcast`);
-      }
-    }, 3000);
   }
 
   stopGameStateBroadcast(): void {
@@ -1020,6 +1072,51 @@ export abstract class BaseCrashGameHandler implements IGameHandler {
     } catch (error: any) {
       this.logger.error(
         `Error processing auto-cashout: playerGameId=${playerGameId} error=${error.message}`,
+      );
+    }
+  }
+
+  private async processMockBetCashouts(gameCode: string | null): Promise<void> {
+    try {
+      const activeRound = await this.gameService.getActiveRound();
+      if (!activeRound || !activeRound.mockBetsCashoutSchedule) {
+        return;
+      }
+
+      const currentCoeff = activeRound.currentCoeff;
+      const scheduledCashouts: Array<{ playerGameId: string; bet: BetData }> = [];
+
+      // Find all mock bets that should cashout at current coefficient
+      for (const [playerGameId, schedule] of activeRound.mockBetsCashoutSchedule.entries()) {
+        if (currentCoeff >= schedule.cashoutCoeff) {
+          const bet = activeRound.bets.get(playerGameId);
+          if (bet && bet.userId.startsWith('mock_') && !bet.coeffWin) {
+            scheduledCashouts.push({ playerGameId, bet });
+          }
+        }
+      }
+
+      // Process each scheduled cashout
+      for (const { playerGameId, bet } of scheduledCashouts) {
+        const schedule = activeRound.mockBetsCashoutSchedule.get(playerGameId);
+        if (!schedule) continue;
+
+        bet.coeffWin = schedule.cashoutCoeff.toFixed(2);
+        const betAmount = parseFloat(bet.betAmount || '0');
+        bet.winAmount = Math.round(betAmount * schedule.cashoutCoeff).toString();
+        activeRound.bets.set(playerGameId, bet);
+        activeRound.mockBetsCashoutSchedule.delete(playerGameId);
+
+        await this.gameService.saveActiveRoundToRedis();
+
+        const gameState = await this.gameService.getCurrentGameState();
+        if (gameState && gameCode) {
+          this.broadcastGameStateChange(gameCode, gameState);
+        }
+      }
+    } catch (error: any) {
+      this.logger.error(
+        `Error processing mock bet cashouts: ${error.message}`,
       );
     }
   }

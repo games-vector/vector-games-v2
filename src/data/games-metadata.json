@@ -1,0 +1,26 @@
+{
+  "games": [
+    {
+      "gameCode": "chicken-road-two",
+      "thumbnail": "https://cdn.prod.website-files.com/65e508fe833fc8d3e049ee44/67ff9cb072aefa0252de1fcc_chiken%20road%202%20(1).png",
+      "description": "Chicken Road 2.0 — a crazy dash where only the brave cross the road! \n Escape the insane traffic! Twice the adrenaline!\nJump across the busy highway, dodge cars and trucks — the chick must reach its goal at any cost!\n\nDynamic gameplay and excitement!\nIntuitive controls, vibrant graphics, hilarious animations — a game you won't be able to put down!\nComplete all levels, hit the jackpot!\n\nReady for the challenge? Then dive into our new Chicken Road 2.0 and prove you're the fastest and most nimble chick in the world!",
+      "demoGif": "https://cdn.prod.website-files.com/65e508fe833fc8d3e049ee44/67ffa7fd3a388bbc0b6b9299_chrome_zur7t1sL2x-min.gif",
+      "images": [
+        "https://cdn.prod.website-files.com/65e508fe833fc8d3e049ee44/67ff9cb072aefa0252de1fcc_chiken%20road%202%20(1).png",
+        "https://cdn.prod.website-files.com/65e508fe833fc8d3e049ee44/67ffaa13a3b1cd8af0ec5b15_image%20(39).png",
+        "https://cdn.prod.website-files.com/65e508fe833fc8d3e049ee44/67ffaa606142784cbc371022_image%20(40).png"
+      ]
+    },
+    {
+      "gameCode": "sugar-daddy",
+      "thumbnail": "https://cdn.prod.website-files.com/65e508fe833fc8d3e049ee44/67518a2d99b651be58abb114_sugar%20daddy-img.png",
+      "description": "Welcome to the world of Sugar Daddy - a game where every turn of the desert road increases not only your chance of winning, but also the level of temptation. A luxurious sports car, a charming girl and dynamic stakes - all this awaits you in this exciting and spicy game.",
+      "demoGif": "https://cdn.prod.website-files.com/65e508fe833fc8d3e049ee44/675193bb2562197008d563e1_chrome_oEbb0WjIcY-min.gif",
+      "images": [
+        "https://cdn.prod.website-files.com/65e508fe833fc8d3e049ee44/67518c2bf41c70f7f001115d_Screenshot_2%20PC.jpg",
+        "https://cdn.prod.website-files.com/65e508fe833fc8d3e049ee44/67518c2bf41c70f7f001115d_Screenshot_2%20PC.jpg",
+        "https://cdn.prod.website-files.com/65e508fe833fc8d3e049ee44/67518a2d99b651be58abb114_sugar%20daddy-img.png"
+      ]
+    }
+  ]
+}

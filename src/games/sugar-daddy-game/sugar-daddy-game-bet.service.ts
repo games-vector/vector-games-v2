@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
+import * as crypto from 'crypto';
 import { WalletService, BetService as CoreBetService, BetStatus } from '@games-vector/game-core';
 import { BetData, PendingBet } from './DTO/game-state.dto';
 import { SugarDaddyGameService } from './sugar-daddy-game.service';
@@ -717,6 +718,213 @@ export class SugarDaddyGameBetService {
     }
   }
 
+  /**
+   * Generate fairness data for a bet from active round or coefficient history
+   * @param userId - User ID to find client seed
+   * @param roundId - Optional round ID to get fairness data from coefficient history for older bets
+   * @returns Fairness data object or null if not available
+   */
+  private async generateFairnessDataForBet(userId: string, roundId?: number): Promise<{
+    decimal?: string;
+    clientSeed?: string;
+    serverSeed?: string;
+    combinedHash?: string;
+    hashedServerSeed?: string;
+    clientsSeeds?: Array<{
+      userId: string;
+      seed: string;
+      nickname: string;
+      gameAvatar: number | null;
+    }>;
+  } | null> {
+    try {
+      // First try to get from activeRound (for current round bets)
+      const activeRound = await this.sugarDaddyGameService.getActiveRound();
+      
+      if (activeRound && activeRound.serverSeed) {
+        // Check if this is the correct round
+        if (!roundId || activeRound.roundId === roundId) {
+          this.logger.debug(
+            `[FAIRNESS_DATA] Checking activeRound for userId=${userId} roundId=${roundId} activeRound.roundId=${activeRound.roundId} clientsSeedsCount=${activeRound.clientsSeeds?.length || 0}`,
+          );
+          // Find user's client seed
+          const userClientSeed = activeRound.clientsSeeds.find(
+            (clientSeed) => clientSeed.userId === userId,
+          );
+
+          if (userClientSeed) {
+            this.logger.debug(
+              `[FAIRNESS_DATA] Found client seed in activeRound for userId=${userId} roundId=${roundId}`,
+            );
+            const clientSeed = userClientSeed.seed;
+            const serverSeed = activeRound.serverSeed;
+
+            // Calculate hashedServerSeed
+            const hashedServerSeed = crypto
+              .createHash('sha256')
+              .update(serverSeed)
+              .digest('hex');
+
+            // Calculate combinedHash
+            const combinedHash = crypto
+              .createHash('sha256')
+              .update(clientSeed + serverSeed)
+              .digest('hex');
+
+            // Calculate decimal from combinedHash (first 16 hex chars)
+            const hexValue = combinedHash.substring(0, 16);
+            const decimalValue = parseInt(hexValue, 16) / Math.pow(16, 16);
+            const decimal = decimalValue > 1e100 
+              ? decimalValue.toExponential() 
+              : decimalValue.toString();
+
+            const topClientsSeeds = this.sugarDaddyGameService.buildTopClientsSeeds();
+
+            return {
+              decimal,
+              clientSeed,
+              serverSeed,
+              combinedHash,
+              hashedServerSeed,
+              clientsSeeds: topClientsSeeds,
+            };
+          } else {
+            this.logger.warn(
+              `[FAIRNESS_DATA] Client seed not found in activeRound.clientsSeeds for userId=${userId} roundId=${roundId} activeRound.roundId=${activeRound.roundId} clientsSeedsCount=${activeRound.clientsSeeds?.length || 0}`,
+            );
+          }
+        } else {
+          this.logger.debug(
+            `[FAIRNESS_DATA] RoundId mismatch: activeRound.roundId=${activeRound.roundId} expected=${roundId}`,
+          );
+        }
+      } else {
+        this.logger.debug(
+          `[FAIRNESS_DATA] activeRound or serverSeed missing: activeRound=${!!activeRound} serverSeed=${activeRound?.serverSeed ? 'present' : 'missing'}`,
+        );
+      }
+
+      // If not found in activeRound, try to get from coefficient history (for older bets or current round)
+      // IMPORTANT: For current round, coefficient history is stored during endRound(), so it should be available
+      if (roundId) {
+        const coefficientsHistory = await this.sugarDaddyGameService.getCoefficientsHistory(1000);
+        const coeffHistory = coefficientsHistory.find(h => h.gameId === roundId);
+        
+        if (coeffHistory && coeffHistory.serverSeed) {
+          // First try to find user's client seed in the coefficient history's clientsSeeds (top 3 winners)
+          let userClientSeed = coeffHistory.clientsSeeds.find(
+            (clientSeed) => clientSeed.userId === userId,
+          );
+
+          // If not found in top 3, and we have activeRound, try to get from activeRound.clientsSeeds
+          // This handles cases where the user placed a bet but wasn't in top 3 winners
+          if (!userClientSeed && activeRound && activeRound.roundId === roundId) {
+            const activeRoundClientSeed = activeRound.clientsSeeds.find(
+              (clientSeed) => clientSeed.userId === userId,
+            );
+            if (activeRoundClientSeed) {
+              userClientSeed = activeRoundClientSeed;
+              this.logger.debug(
+                `[FAIRNESS_DATA] Found client seed in activeRound (not in top 3) for userId=${userId} roundId=${roundId}`,
+              );
+            }
+          }
+
+          if (userClientSeed) {
+            const clientSeed = userClientSeed.seed;
+            const serverSeed = coeffHistory.serverSeed;
+
+            const hashedServerSeed = crypto
+              .createHash('sha256')
+              .update(serverSeed)
+              .digest('hex');
+
+            const combinedHash = coeffHistory.combinedHash || crypto
+              .createHash('sha256')
+              .update(clientSeed + serverSeed)
+              .digest('hex');
+
+            const decimal = coeffHistory.decimal || (() => {
+              const hexValue = combinedHash.substring(0, 16);
+              const decimalValue = parseInt(hexValue, 16) / Math.pow(16, 16);
+              return decimalValue > 1e100 
+                ? decimalValue.toExponential() 
+                : decimalValue.toString();
+            })();
+
+            this.logger.debug(
+              `[FAIRNESS_DATA] Generated fairness data from coefficient history for userId=${userId} roundId=${roundId}`,
+            );
+
+            const clientsSeeds = coeffHistory.clientsSeeds || [];
+
+            return {
+              decimal,
+              clientSeed,
+              serverSeed,
+              combinedHash,
+              hashedServerSeed,
+              clientsSeeds: clientsSeeds,
+            };
+          } else {
+            this.logger.warn(
+              `[FAIRNESS_DATA] Client seed not found in coefficient history for userId=${userId} roundId=${roundId}`,
+            );
+          }
+        } else {
+          this.logger.warn(
+            `[FAIRNESS_DATA] Coefficient history not found for roundId=${roundId} userId=${userId}`,
+          );
+        }
+      }
+
+      // If still not found, try activeRound without roundId check (fallback)
+      if (activeRound && activeRound.serverSeed) {
+        const userClientSeed = activeRound.clientsSeeds.find(
+          (clientSeed) => clientSeed.userId === userId,
+        );
+
+        if (userClientSeed) {
+          const clientSeed = userClientSeed.seed;
+          const serverSeed = activeRound.serverSeed;
+
+          const hashedServerSeed = crypto
+            .createHash('sha256')
+            .update(serverSeed)
+            .digest('hex');
+
+          const combinedHash = crypto
+            .createHash('sha256')
+            .update(clientSeed + serverSeed)
+            .digest('hex');
+
+          const hexValue = combinedHash.substring(0, 16);
+          const decimalValue = parseInt(hexValue, 16) / Math.pow(16, 16);
+          const decimal = decimalValue > 1e100 
+            ? decimalValue.toExponential() 
+            : decimalValue.toString();
+
+          const topClientsSeeds = this.sugarDaddyGameService.buildTopClientsSeeds();
+
+          return {
+            decimal,
+            clientSeed,
+            serverSeed,
+            combinedHash,
+            hashedServerSeed,
+            clientsSeeds: topClientsSeeds,
+          };
+        }
+      }
+
+      this.logger.warn(`[FAIRNESS_DATA] Cannot generate fairness data: activeRound or serverSeed missing for userId=${userId} roundId=${roundId || 'N/A'}`);
+      return null;
+    } catch (error: any) {
+      this.logger.error(`[FAIRNESS_DATA] Error generating fairness data for userId=${userId} roundId=${roundId || 'N/A'}: ${error.message}`);
+      return null;
+    }
+  }
+
   async cashOut(
     userId: string,
     agentId: string,
@@ -832,8 +1040,9 @@ export class SugarDaddyGameBetService {
         );
       }
 
-      const currentCoeff = activeRound.currentCoeff;
-      const cashedOutBet = await this.sugarDaddyGameService.cashOutBet(playerGameId, currentCoeff);
+      // For auto-cashout bets, use the bet's coeffAuto; for manual cashout, use currentCoeff
+      const cashoutCoeff = bet.coeffAuto ? parseFloat(bet.coeffAuto) : activeRound.currentCoeff;
+      const cashedOutBet = await this.sugarDaddyGameService.cashOutBet(playerGameId, cashoutCoeff);
 
       if (!cashedOutBet) {
         return createErrorResponse(
@@ -844,6 +1053,7 @@ export class SugarDaddyGameBetService {
 
       const winAmount = parseFloat(cashedOutBet.winAmount || '0');
       const roundId = String(activeRound.roundId);
+      const roundIdNum = activeRound.roundId;
 
       this.logger.log(
         `[CASHOUT] user=${userId} playerGameId=${playerGameId} coeff=${cashedOutBet.coeffWin} winAmount=${winAmount}`,
@@ -874,6 +1084,22 @@ export class SugarDaddyGameBetService {
         );
       }
 
+      // Generate fairness data for the bet - pass roundId to get from coefficient history if needed
+      const fairnessData = await this.generateFairnessDataForBet(userId, roundIdNum);
+
+      // Debug log: Verify fairnessData is generated
+      if (!fairnessData) {
+        this.logger.warn(
+          `[FAIRNESS_DATA_DEBUG] cashOut: fairnessData is null/undefined for userId=${userId} playerGameId=${playerGameId} roundId=${roundIdNum}`,
+        );
+      } else {
+        this.logger.debug(
+          `[FAIRNESS_DATA_DEBUG] cashOut: fairnessData generated for userId=${userId} hasServerSeed=${!!fairnessData.serverSeed} hasClientSeed=${!!fairnessData.clientSeed} roundId=${roundIdNum}`,
+        );
+      }
+
+      const finalCoeff = activeRound.crashCoeff ? activeRound.crashCoeff.toFixed(2) : undefined;
+
       await this.betService.recordSettlement({
         externalPlatformTxId,
         winAmount: cashedOutBet.winAmount || '0',
@@ -881,8 +1107,13 @@ export class SugarDaddyGameBetService {
         settledAt: new Date(),
         updatedBy: userId,
         withdrawCoeff: cashedOutBet.coeffWin,
-        finalCoeff: cashedOutBet.coeffWin,
+        finalCoeff: finalCoeff,
+        fairnessData: fairnessData ?? undefined,
       });
+      
+      this.logger.log(
+        `[CASHOUT] Called recordSettlement for externalPlatformTxId=${externalPlatformTxId} userId=${userId} fairnessData=${fairnessData ? 'present' : 'missing'}`,
+      );
 
       const betAmount = parseFloat(cashedOutBet.betAmount);
       const settleResult = await this.walletService.settleBet({
@@ -925,19 +1156,40 @@ export class SugarDaddyGameBetService {
     try {
       const bets = await this.betService.listUserBets(userId, gameCode, limit);
       
+      // Filter out canceled/refunded bets - only send WON/LOST bets
+      const settledBets = bets.filter(bet => 
+        bet.status === BetStatus.WON || bet.status === BetStatus.LOST
+      );
+      
       const coefficientsHistory = await this.sugarDaddyGameService.getCoefficientsHistory(1000);
       const coeffHistoryMap = new Map<number, any>();
       coefficientsHistory.forEach((coeff) => {
         coeffHistoryMap.set(coeff.gameId, coeff);
       });
       
-      const betHistory = bets.map((bet) => {
+      // Debug log: Log coefficient history retrieval
+      this.logger.debug(
+        `[CLIENTSSEEDS_DEBUG] getUserBetsHistory: Retrieved ${coefficientsHistory.length} coefficient history entries, sample gameIds: ${Array.from(coeffHistoryMap.keys()).slice(0, 5).join(', ')}`,
+      );
+      
+      const betHistory = settledBets.map((bet) => {
         const gameMetadata = bet.gameMetadata || {};
         const fairnessData = bet.fairnessData || {};
         
         const gameId = parseInt(bet.roundId) || 0;
         
         const coeffHistory = coeffHistoryMap.get(gameId);
+        
+        // Debug log: Log gameId lookup
+        if (!coeffHistory) {
+          this.logger.debug(
+            `[CLIENTSSEEDS_DEBUG] getUserBetsHistory: Bet ${bet.id} gameId=${gameId} NOT FOUND in coeffHistoryMap. Available gameIds: ${Array.from(coeffHistoryMap.keys()).slice(0, 10).join(', ')}`,
+          );
+        } else {
+          this.logger.debug(
+            `[CLIENTSSEEDS_DEBUG] getUserBetsHistory: Bet ${bet.id} gameId=${gameId} FOUND in coeffHistory, clientsSeedsCount=${coeffHistory.clientsSeeds?.length || 0}`,
+          );
+        }
         
         const serverSeed = coeffHistory?.serverSeed || fairnessData.serverSeed || '';
         
@@ -953,7 +1205,7 @@ export class SugarDaddyGameBetService {
         let fairness: any = {
           serverSeed: serverSeed,
           hashedServerSeed: hashedServerSeed,
-          clientsSeeds: coeffHistory?.clientsSeeds || [],
+          clientsSeeds: coeffHistory?.clientsSeeds || (fairnessData as any).clientsSeeds || [],
           combinedHash: coeffHistory?.combinedHash || fairnessData.combinedHash || '',
           decimal: coeffHistory?.decimal || fairnessData.decimal || '',
           maxCoefficient: 1000000,
@@ -964,10 +1216,18 @@ export class SugarDaddyGameBetService {
             const gameInfo = typeof bet.gameInfo === 'string' ? JSON.parse(bet.gameInfo) : bet.gameInfo;
             if (gameInfo.clientsSeeds && Array.isArray(gameInfo.clientsSeeds)) {
               fairness.clientsSeeds = gameInfo.clientsSeeds;
+              this.logger.debug(
+                `[CLIENTSSEEDS_DEBUG] getUserBetsHistory: Bet ${bet.id} found clientsSeeds in gameInfo, count=${gameInfo.clientsSeeds.length}`,
+              );
             }
           } catch (e) {
           }
         }
+        
+        // Debug log: Log final clientsSeeds in fairness object
+        this.logger.debug(
+          `[CLIENTSSEEDS_DEBUG] getUserBetsHistory: Bet ${bet.id} final fairness.clientsSeeds count=${fairness.clientsSeeds.length}`,
+        );
         
         // If all fairness values are empty, return empty object
         if (
@@ -980,15 +1240,20 @@ export class SugarDaddyGameBetService {
           fairness = {};
         }
         
+        // withdrawCoeff: bet's withdrawCoeff if exists, else 0
+        const withdrawCoeff = bet.withdrawCoeff ? parseFloat(bet.withdrawCoeff) : 0;
+        
+        const finishCoeff = coeffHistory?.coeff || (bet.finalCoeff ? parseFloat(bet.finalCoeff) : 0);
+        
         return {
           id: bet.id,
           createdAt: bet.createdAt.toISOString(),
           gameId: gameId,
-          finishCoeff: bet.finalCoeff ? parseFloat(bet.finalCoeff) : (bet.withdrawCoeff ? parseFloat(bet.withdrawCoeff) : 0),
+          finishCoeff: finishCoeff,
           fairness: fairness,
           betAmount: parseFloat(bet.betAmount),
           win: bet.winAmount ? parseFloat(bet.winAmount) : 0,
-          withdrawCoeff: bet.withdrawCoeff ? parseFloat(bet.withdrawCoeff) : null,
+          withdrawCoeff: withdrawCoeff,
           operatorId: bet.operatorId,
           userId: bet.userId,
           currency: bet.currency,
@@ -1340,17 +1605,79 @@ export class SugarDaddyGameBetService {
     try {
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
       if (!activeRound) {
+        this.logger.warn(`[SETTLE_UNCASHED] No active round found for roundId=${roundId}`);
+        return;
+      }
+
+      // CRITICAL: Verify we're settling bets from the correct round
+      if (activeRound.roundId !== roundId) {
+        this.logger.error(
+          `[SETTLE_UNCASHED] RoundId mismatch: activeRound.roundId=${activeRound.roundId} expected=${roundId}. Cannot settle bets - round may have already finished and new round started.`,
+        );
         return;
       }
 
       const crashCoeff = activeRound.crashCoeff || 1.0;
+      const finalCoeff = crashCoeff.toFixed(2);
       const uncashedBets: Array<{ playerGameId: string; bet: BetData }> = [];
+      const cashedOutBets: Array<{ playerGameId: string; bet: BetData }> = [];
+      
+      this.logger.log(
+        `[SETTLE_UNCASHED] Starting settlement for roundId=${roundId} activeRound.roundId=${activeRound.roundId} totalBets=${activeRound.bets.size}`,
+      );
 
       for (const [playerGameId, bet] of activeRound.bets.entries()) {
-        if (!bet.coeffWin || !bet.winAmount) {
+        // Skip mock bets - they should not be settled via wallet/DB
+        if (bet.userId.startsWith('mock_')) {
+          continue;
+        }
+        
+        // Check if bet actually cashed out (winAmount > 0)
+        // After calculateWins() runs, uncashed bets have coeffWin='0.00' and winAmount='0',
+        // so we need to check the numeric value, not just existence
+        const winAmount = parseFloat(bet.winAmount || '0');
+        const coeffWin = parseFloat(bet.coeffWin || '0');
+
+        if (winAmount > 0 && coeffWin > 0) {
+          cashedOutBets.push({ playerGameId, bet });
+        } else {
           uncashedBets.push({ playerGameId, bet });
         }
       }
+
+      for (const { playerGameId, bet } of cashedOutBets) {
+        try {
+          const mappingKey = `sugar-daddy:bet:${playerGameId}`;
+          const externalPlatformTxId = await this.redisService.get<string>(mappingKey);
+
+          if (externalPlatformTxId) {
+            const betRecord = await this.betService.getByExternalTxId(externalPlatformTxId, gameCode);
+            if (betRecord && (!betRecord.finalCoeff || betRecord.finalCoeff === betRecord.withdrawCoeff)) {
+              await this.betService.recordSettlement({
+                externalPlatformTxId,
+                winAmount: betRecord.winAmount || '0',
+                settleType: 'cashout',
+                settledAt: betRecord.settledAt || new Date(),
+                updatedBy: 'system',
+                withdrawCoeff: betRecord.withdrawCoeff || '0.00',
+                finalCoeff: finalCoeff,
+                fairnessData: betRecord.fairnessData || undefined,
+              });
+              this.logger.debug(
+                `[SETTLE_UNCASHED] Updated finalCoeff for cashed out bet: playerGameId=${playerGameId} finalCoeff=${finalCoeff}`,
+              );
+            }
+          }
+        } catch (error) {
+          this.logger.warn(
+            `[SETTLE_UNCASHED] Failed to update finalCoeff for cashed out bet: playerGameId=${playerGameId} error=${error.message}`,
+          );
+        }
+      }
+
+      this.logger.log(
+        `[SETTLE_UNCASHED] Found ${uncashedBets.length} uncashed bets and ${cashedOutBets.length} cashed out bets for roundId=${roundId}`,
+      );
 
       if (uncashedBets.length === 0) {
         this.logger.log(`[SETTLE_UNCASHED] No uncashed bets to settle for roundId=${roundId}`);
@@ -1363,6 +1690,10 @@ export class SugarDaddyGameBetService {
 
       for (const { playerGameId, bet } of uncashedBets) {
         try {
+          this.logger.debug(
+            `[SETTLE_UNCASHED] Processing uncashed bet: playerGameId=${playerGameId} userId=${bet.userId} betAmount=${bet.betAmount}`,
+          );
+          
           const mappingKey = `sugar-daddy:bet:${playerGameId}`;
           const externalPlatformTxId = await this.redisService.get<string>(mappingKey);
 
@@ -1391,6 +1722,43 @@ export class SugarDaddyGameBetService {
           const winAmount = '0';
           const finalCoeff = crashCoeff.toFixed(2);
 
+          // Generate fairness data for the bet - pass roundId to get from coefficient history if needed
+          let fairnessData = await this.generateFairnessDataForBet(bet.userId, roundId);
+
+          // Fallback: If fairnessData is null, try to get at least serverSeed from coefficient history
+          if (!fairnessData) {
+            this.logger.warn(
+              `[SETTLE_UNCASHED] fairnessData generation failed for userId=${bet.userId} roundId=${roundId}, attempting fallback`,
+            );
+            
+            const coefficientsHistory = await this.sugarDaddyGameService.getCoefficientsHistory(1000);
+            const coeffHistory = coefficientsHistory.find(h => h.gameId === roundId);
+            
+            if (coeffHistory && coeffHistory.serverSeed) {
+              const crypto = require('crypto');
+              fairnessData = {
+                serverSeed: coeffHistory.serverSeed,
+                hashedServerSeed: crypto.createHash('sha256').update(coeffHistory.serverSeed).digest('hex'),
+                combinedHash: coeffHistory.combinedHash || '',
+                decimal: coeffHistory.decimal || '',
+                clientSeed: '', // Will be empty if we can't find user's seed
+                clientsSeeds: coeffHistory.clientsSeeds || [],
+              };
+              this.logger.warn(
+                `[SETTLE_UNCASHED] Generated fallback fairnessData for userId=${bet.userId} roundId=${roundId} (missing clientSeed)`,
+              );
+            } else {
+              this.logger.error(
+                `[SETTLE_UNCASHED] Cannot generate fairnessData for userId=${bet.userId} roundId=${roundId} - no coefficient history found`,
+              );
+            }
+          } else {
+            this.logger.debug(
+              `[SETTLE_UNCASHED] fairnessData generated for userId=${bet.userId} hasServerSeed=${!!fairnessData.serverSeed} hasClientSeed=${!!fairnessData.clientSeed}`,
+            );
+          }
+
+          // Ensure we never pass null - use ?? to handle null/undefined properly
           await this.betService.recordSettlement({
             externalPlatformTxId,
             winAmount,
@@ -1399,7 +1767,12 @@ export class SugarDaddyGameBetService {
             updatedBy: 'system',
             withdrawCoeff: '0.00',
             finalCoeff,
+            fairnessData: fairnessData ?? undefined,
           });
+          
+          this.logger.log(
+            `[SETTLE_UNCASHED] Called recordSettlement for externalPlatformTxId=${externalPlatformTxId} userId=${bet.userId} fairnessData=${fairnessData ? 'present' : 'missing'}`,
+          );
 
           const betAmount = parseFloat(bet.betAmount);
           await this.walletService.settleBet({
@@ -1415,7 +1788,7 @@ export class SugarDaddyGameBetService {
           await this.redisService.del(mappingKey);
 
           this.logger.log(
-            `[SETTLE_UNCASHED] ✅ Settled uncashed bet: userId=${bet.userId} playerGameId=${playerGameId} winAmount=0`,
+            `[SETTLE_UNCASHED] ✅ Settled uncashed bet: userId=${bet.userId} playerGameId=${playerGameId} externalPlatformTxId=${externalPlatformTxId} winAmount=0 status=LOST fairnessData=${fairnessData ? 'stored' : 'missing'}`,
           );
         } catch (error: any) {
           this.logger.error(

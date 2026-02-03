@@ -18,6 +18,15 @@ if [ ! -f .env.production ]; then
     exit 1
 fi
 
+# Check if GITHUB_TOKEN is set (either in .env.production or as environment variable)
+if [ -z "$GITHUB_TOKEN" ] && ! grep -q "^GITHUB_TOKEN=" .env.production 2>/dev/null; then
+    echo -e "${YELLOW}⚠️  Warning: GITHUB_TOKEN not found in .env.production or environment${NC}"
+    echo -e "${YELLOW}📝 The build will try to use .npmrc from build context if available${NC}"
+    echo -e "${YELLOW}📝 For better security, add GITHUB_TOKEN to .env.production:${NC}"
+    echo -e "${YELLOW}   GITHUB_TOKEN=ghp_your_token_here${NC}"
+    echo ""
+fi
+
 # Check if Docker is installed
 if ! command -v docker &> /dev/null; then
     echo -e "${RED}❌ Error: Docker is not installed!${NC}"

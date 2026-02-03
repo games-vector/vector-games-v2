@@ -18,6 +18,8 @@ export class DiverGameScheduler implements OnModuleInit, OnModuleDestroy {
   private nextRoundTimer: NodeJS.Timeout | null = null;
   private leaderRenewTimer: NodeJS.Timeout | null = null;
   private leaderElectionTimer: NodeJS.Timeout | null = null;
+  private retryTimer: NodeJS.Timeout | null = null;
+  private mockBetsAdditionTimer: NodeJS.Timeout | null = null;
   private isRunning = false;
   private isLeader = false;
 
@@ -28,13 +30,26 @@ export class DiverGameScheduler implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    this.diverGameHandler.setOnRoundEndCallback(() => {
-      this.onRoundEnded();
-    });
-    
-    setTimeout(() => {
-      this.startLeaderElection();
-    }, 2000);
+    try {
+      this.logger.log(`[DIVER_SCHEDULER] ✅ Initializing with podId=${this.POD_ID}`);
+      this.diverGameHandler.setOnRoundEndCallback(() => {
+        this.onRoundEnded();
+      });
+      
+      setTimeout(() => {
+        this.logger.log(`[DIVER_SCHEDULER] Starting leader election in 2 seconds...`);
+        this.startLeaderElection().catch((error) => {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.logger.error(`[DIVER_SCHEDULER] ❌ Error in startLeaderElection: ${errorMessage}`);
+        });
+      }, 2000);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        `[DIVER_SCHEDULER] ❌ Error in onModuleInit: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
+      );
+    }
   }
 
   onModuleDestroy() {
@@ -46,16 +61,35 @@ export class DiverGameScheduler implements OnModuleInit, OnModuleDestroy {
   }
 
   private async startLeaderElection(): Promise<void> {
-    const acquired = await this.diverGameService.acquireLeaderLock(this.POD_ID);
-    
-    if (acquired) {
-      this.isLeader = true;
-      this.logger.log(`[LEADER_ELECTION] Pod ${this.POD_ID} is now the leader`);
-      this.startGameLoop();
-      this.startLeaderRenewal();
-    } else {
+    try {
+      this.logger.log(`[DIVER_LEADER_ELECTION] Attempting to acquire leader lock for pod ${this.POD_ID}`);
+      const acquired = await this.diverGameService.acquireLeaderLock(this.POD_ID);
+      
+      if (acquired) {
+        this.isLeader = true;
+        this.logger.log(`[DIVER_LEADER_ELECTION] ✅ Pod ${this.POD_ID} is now the leader - starting game loop`);
+        this.startGameLoop();
+        this.startLeaderRenewal();
+      } else {
+        this.logger.warn(`[DIVER_LEADER_ELECTION] ❌ Pod ${this.POD_ID} failed to acquire leader lock - another pod may be leader. Retrying in 5 seconds...`);
+        this.leaderElectionTimer = setTimeout(() => {
+          this.startLeaderElection().catch((error) => {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.logger.error(`[DIVER_LEADER_ELECTION] ❌ Error in retry: ${errorMessage}`);
+          });
+        }, 5000);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        `[DIVER_LEADER_ELECTION] ❌ Error during leader election: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
+      );
+      // Retry after 5 seconds even on error
       this.leaderElectionTimer = setTimeout(() => {
-        this.startLeaderElection();
+        this.startLeaderElection().catch((err) => {
+          this.logger.error(`[DIVER_LEADER_ELECTION] ❌ Error in error retry: ${err instanceof Error ? err.message : String(err)}`);
+        });
       }, 5000);
     }
   }
@@ -91,15 +125,96 @@ export class DiverGameScheduler implements OnModuleInit, OnModuleDestroy {
 
   private startGameLoop(): void {
     if (this.isRunning) {
+      this.logger.warn(`[DIVER_SCHEDULER] Game loop already running, skipping start`);
       return;
     }
 
     if (!this.isLeader) {
+      this.logger.warn(`[DIVER_SCHEDULER] Cannot start game loop - not the leader (podId=${this.POD_ID})`);
       return;
     }
 
+    this.logger.log(`[DIVER_SCHEDULER] ✅ Starting game loop (podId=${this.POD_ID})`);
     this.isRunning = true;
     this.startNewRound();
+  }
+
+  private startGradualMockBetsAddition(): void {
+    if (this.mockBetsAdditionTimer) {
+      clearInterval(this.mockBetsAdditionTimer);
+      this.mockBetsAdditionTimer = null;
+    }
+
+    const pendingMockBets = this.diverGameService.getPendingMockBets();
+    if (pendingMockBets.length === 0) {
+      return;
+    }
+
+    const numBatches = Math.floor(Math.random() * 3) + 3;
+    let batchIndex = 0;
+
+    const addBatch = async () => {
+      if (!this.isLeader) {
+        if (this.mockBetsAdditionTimer) {
+          clearInterval(this.mockBetsAdditionTimer);
+          this.mockBetsAdditionTimer = null;
+        }
+        return;
+      }
+
+      const activeRound = await this.diverGameService.getActiveRound();
+      if (!activeRound || activeRound.status !== GameStatus.WAIT_GAME) {
+        if (this.mockBetsAdditionTimer) {
+          clearInterval(this.mockBetsAdditionTimer);
+          this.mockBetsAdditionTimer = null;
+        }
+        return;
+      }
+
+      const remainingBets = this.diverGameService.getPendingMockBets();
+      if (remainingBets.length === 0) {
+        if (this.mockBetsAdditionTimer) {
+          clearInterval(this.mockBetsAdditionTimer);
+          this.mockBetsAdditionTimer = null;
+        }
+        return;
+      }
+
+      const batchSize = Math.min(Math.floor(Math.random() * 7) + 2, remainingBets.length);
+      const batch = remainingBets.slice(0, batchSize);
+      
+      await this.diverGameService.addMockBetsBatch(batch);
+      this.diverGameService.removePendingMockBets(batch);
+
+      const gameState = await this.diverGameService.getCurrentGameState();
+      if (gameState) {
+        this.diverGameHandler.broadcastGameStateChange(this.GAME_CODE, gameState);
+      }
+
+      batchIndex++;
+
+      if (remainingBets.length <= batchSize || batchIndex >= numBatches) {
+        if (this.mockBetsAdditionTimer) {
+          clearInterval(this.mockBetsAdditionTimer);
+          this.mockBetsAdditionTimer = null;
+        }
+        
+        const finalRemaining = this.diverGameService.getPendingMockBets();
+        if (finalRemaining.length > 0) {
+          await this.diverGameService.addMockBetsBatch(finalRemaining);
+          this.diverGameService.removePendingMockBets(finalRemaining);
+          
+          const finalGameState = await this.diverGameService.getCurrentGameState();
+          if (finalGameState) {
+            this.diverGameHandler.broadcastGameStateChange(this.GAME_CODE, finalGameState);
+          }
+        }
+      }
+    };
+
+    const interval = Math.floor(Math.random() * 2000) + 1000;
+    this.mockBetsAdditionTimer = setInterval(addBatch, interval);
+    addBatch();
   }
 
   private stopGameLoop(): void {
@@ -110,6 +225,14 @@ export class DiverGameScheduler implements OnModuleInit, OnModuleDestroy {
     if (this.nextRoundTimer) {
       clearTimeout(this.nextRoundTimer);
       this.nextRoundTimer = null;
+    }
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    if (this.mockBetsAdditionTimer) {
+      clearInterval(this.mockBetsAdditionTimer);
+      this.mockBetsAdditionTimer = null;
     }
     this.isRunning = false;
     this.diverGameHandler.stopCoefficientBroadcast();
@@ -133,14 +256,17 @@ export class DiverGameScheduler implements OnModuleInit, OnModuleDestroy {
 
   private async startNewRound(): Promise<void> {
     if (!this.isLeader) {
-      this.logger.warn('[DIVER_SCHEDULER] Cannot start new round - not the leader');
+      this.logger.warn(`[DIVER_SCHEDULER] Cannot start new round - not the leader (podId=${this.POD_ID})`);
       return;
     }
 
+    this.logger.log(`[DIVER_SCHEDULER] Starting new round (podId=${this.POD_ID}, isLeader=${this.isLeader})`);
     try {
       const activeRound = await this.diverGameService.getActiveRound();
       if (activeRound) {
+        this.logger.log(`[DIVER_SCHEDULER] Found existing active round: roundId=${activeRound.roundId} status=${activeRound.status}`);
         if (activeRound.status === GameStatus.FINISH_GAME) {
+          this.logger.log(`[DIVER_SCHEDULER] Clearing finished round`);
           await this.diverGameService.clearActiveRound();
         } else {
           this.logger.warn('[DIVER_SCHEDULER] Previous round still active, forcing end');
@@ -148,10 +274,15 @@ export class DiverGameScheduler implements OnModuleInit, OnModuleDestroy {
           await new Promise(resolve => setTimeout(resolve, 1000));
           await this.diverGameService.clearActiveRound();
         }
+      } else {
+        this.logger.log(`[DIVER_SCHEDULER] No existing active round found, creating new one`);
       }
 
+      this.logger.log(`[DIVER_SCHEDULER] Calling startNewRound()...`);
       const round = await this.diverGameService.startNewRound();
+      this.logger.log(`[DIVER_SCHEDULER] ✅ New round created: roundId=${round.roundId} gameUUID=${round.gameUUID} crashCoeff=${round.crashCoeff}`);
 
+      this.logger.log(`[DIVER_SCHEDULER] Processing pending bets...`);
       const pendingBetsResult = await this.diverGameBetService.processPendingBets(
         round.roundId,
         round.gameUUID,
@@ -161,25 +292,61 @@ export class DiverGameScheduler implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(
           `[DIVER_SCHEDULER] Pending bet errors: ${JSON.stringify(pendingBetsResult.errors)}`,
         );
+      } else {
+        this.logger.log(`[DIVER_SCHEDULER] ✅ Pending bets processed: ${pendingBetsResult.processed} processed, ${pendingBetsResult.errors.length} errors`);
       }
 
+      this.logger.log(`[DIVER_SCHEDULER] Getting current game state...`);
       const gameState = await this.diverGameService.getCurrentGameState();
       if (gameState) {
+        this.logger.log(`[DIVER_SCHEDULER] ✅ Game state retrieved: status=${gameState.status} roundId=${gameState.roundId} betsCount=${gameState.bets.values.length}`);
         this.diverGameHandler.broadcastGameStateChange(this.GAME_CODE, gameState);
+      } else {
+        this.logger.error(`[DIVER_SCHEDULER] ❌ Failed to get game state after creating round!`);
       }
 
+      this.logger.log(`[DIVER_SCHEDULER] Starting game state broadcast...`);
       this.diverGameHandler.startGameStateBroadcast(this.GAME_CODE);
+
+      // Start gradual mock bets addition
+      this.startGradualMockBetsAddition();
 
       if (this.waitTimer) {
         clearTimeout(this.waitTimer);
       }
+      this.logger.log(`[DIVER_SCHEDULER] Setting wait timer for ${this.WAIT_TIME_MS}ms before transitioning to IN_GAME`);
       this.waitTimer = setTimeout(async () => {
         if (this.isLeader) {
+          this.logger.log(`[DIVER_SCHEDULER] Wait timer expired, transitioning to IN_GAME...`);
           await this.transitionToInGame();
+        } else {
+          this.logger.warn(`[DIVER_SCHEDULER] Wait timer expired but not leader anymore, skipping transition`);
         }
       }, this.WAIT_TIME_MS);
+      
+      this.logger.log(`[DIVER_SCHEDULER] ✅ New round setup complete`);
     } catch (error) {
-      this.logger.error(`[DIVER_SCHEDULER] Error starting new round: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        `[DIVER_SCHEDULER] ❌ Error starting new round: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
+      );
+      // Retry after 5 seconds if there's an error (only if still leader and running)
+      if (this.isLeader && this.isRunning) {
+        // Clear any existing retry timer
+        if (this.retryTimer) {
+          clearTimeout(this.retryTimer);
+        }
+        this.logger.log(`[DIVER_SCHEDULER] Retrying in 5 seconds...`);
+        this.retryTimer = setTimeout(() => {
+          this.retryTimer = null;
+          if (this.isLeader && this.isRunning) {
+            this.startNewRound();
+          }
+        }, 5000);
+      } else {
+        this.logger.warn(`[DIVER_SCHEDULER] Not retrying - isLeader=${this.isLeader} isRunning=${this.isRunning}`);
+      }
     }
   }
 
@@ -234,25 +401,44 @@ export class DiverGameScheduler implements OnModuleInit, OnModuleDestroy {
 
   private async transitionToInGame(): Promise<void> {
     if (!this.isLeader) {
+      this.logger.warn(`[DIVER_SCHEDULER] Cannot transition to IN_GAME - not the leader`);
       return;
     }
 
     try {
+      this.logger.log(`[DIVER_SCHEDULER] Transitioning to IN_GAME...`);
       const activeRound = await this.diverGameService.getActiveRound();
-      if (!activeRound || activeRound.status !== GameStatus.WAIT_GAME) {
+      if (!activeRound) {
+        this.logger.error(`[DIVER_SCHEDULER] ❌ No active round found when transitioning to IN_GAME`);
+        return;
+      }
+      
+      if (activeRound.status !== GameStatus.WAIT_GAME) {
+        this.logger.warn(`[DIVER_SCHEDULER] Round is not in WAIT_GAME status (current: ${activeRound.status}), skipping transition`);
         return;
       }
 
+      this.logger.log(`[DIVER_SCHEDULER] Starting game (roundId=${activeRound.roundId})...`);
       await this.diverGameService.startGame();
+      this.logger.log(`[DIVER_SCHEDULER] ✅ Game started successfully`);
 
       const gameState = await this.diverGameService.getCurrentGameState();
       if (gameState) {
+        this.logger.log(`[DIVER_SCHEDULER] Broadcasting IN_GAME state: roundId=${gameState.roundId}`);
         this.diverGameHandler.broadcastGameStateChange(this.GAME_CODE, gameState);
+      } else {
+        this.logger.error(`[DIVER_SCHEDULER] ❌ Failed to get game state after starting game`);
       }
 
+      this.logger.log(`[DIVER_SCHEDULER] Starting coefficient broadcast...`);
       this.diverGameHandler.startCoefficientBroadcast(this.GAME_CODE);
+      this.logger.log(`[DIVER_SCHEDULER] ✅ Transition to IN_GAME complete`);
     } catch (error) {
-      this.logger.error(`[DIVER_SCHEDULER] Error transitioning to IN_GAME: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        `[DIVER_SCHEDULER] ❌ Error transitioning to IN_GAME: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
+      );
     }
   }
 }
