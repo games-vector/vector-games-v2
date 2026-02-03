@@ -8,6 +8,9 @@ import { GameConfigService } from '../../modules/game-config/game-config.service
 import { AuthLoginDto, AuthLoginResponse } from './DTO/auth-login.dto';
 import { OnlineCounterResponse } from './DTO/online-counter.dto';
 import { CreateGameDto, CreateGameResponse } from './DTO/create-game.dto';
+import { DEFAULTS } from '../../config/defaults.config';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @Injectable()
 export class GameApiRoutesService {
@@ -119,6 +122,140 @@ export class GameApiRoutesService {
         gameName: game.gameName,
         isActive: game.isActive,
       }));
+  }
+
+  /**
+   * Load games metadata from JSON file
+   */
+  private loadGamesMetadata(): { games: Array<{
+    gameCode: string;
+    thumbnail?: string;
+    description?: string;
+    demoGif?: string;
+    images?: string[];
+  }> } {
+    try {
+      // Try multiple possible locations
+      // In production: __dirname will be dist/routes/game-api-routes
+      // So ../../data/games-metadata.json = dist/data/games-metadata.json
+      const possiblePaths = [
+        path.join(__dirname, '../../data/games-metadata.json'), // Production: relative to compiled code (dist/data/)
+        path.join(process.cwd(), 'dist/data/games-metadata.json'), // Production: absolute path
+        path.join(process.cwd(), 'src/data/games-metadata.json'), // Development
+      ];
+
+      let metadataPath: string | null = null;
+      for (const possiblePath of possiblePaths) {
+        if (fs.existsSync(possiblePath)) {
+          metadataPath = possiblePath;
+          break;
+        }
+      }
+
+      if (!metadataPath) {
+        this.logger.warn(`[getDashboardGames] games-metadata.json not found. Tried: ${possiblePaths.join(', ')}`);
+        return { games: [] };
+      }
+
+      const fileContent = fs.readFileSync(metadataPath, 'utf-8');
+      this.logger.log(`[getDashboardGames] Loaded games metadata from ${metadataPath}`);
+      return JSON.parse(fileContent);
+    } catch (error: any) {
+      this.logger.warn(`[getDashboardGames] Could not load games metadata: ${error.message}`);
+      return { games: [] };
+    }
+  }
+
+  async getDashboardGames(): Promise<{ 
+    userId: string;
+    agentId: string;
+    cert: string;
+    games: Array<any> 
+  }> {
+    this.logger.log(`[getDashboardGames] Request received`);
+    const games = await this.gameService.getActiveGames();
+    
+    // Get credentials from platform config table
+    let userId = 'ztj130cdajnmodugtbtk';
+    let agentId = 'brlag';
+    let cert = 'JXfDPlWXw4LxuDtxVz0';
+    
+    try {
+      const credentialsConfig = await this.gameConfigService.getConfig('platform', 'dashboard_credentials');
+      if (credentialsConfig) {
+        const credentials = JSON.parse(credentialsConfig);
+        userId = credentials.userId || userId;
+        agentId = credentials.agentId || agentId;
+        cert = credentials.cert || cert;
+        this.logger.log(`[getDashboardGames] Loaded credentials from platform config`);
+      } else {
+        this.logger.warn(`[getDashboardGames] dashboard_credentials not found in platform config, using placeholders`);
+      }
+    } catch (error: any) {
+      this.logger.error(`[getDashboardGames] Error loading credentials from platform config: ${error.message}`);
+      // Continue with placeholders if config not found or invalid
+    }
+    
+    // Load games metadata from JSON file
+    const metadata = this.loadGamesMetadata();
+    const metadataMap = new Map<string, {
+      gameCode: string;
+      thumbnail?: string;
+      description?: string;
+      demoGif?: string;
+      images?: string[];
+    }>(
+      metadata.games.map((m) => [m.gameCode, m])
+    );
+    
+    const dashboardGames = games
+      .filter(game => game.isActive)
+      .map(game => {
+        // Get game config from defaults
+        let gameConfig: any = null;
+        
+        // Find matching game config
+        if (game.gameCode === DEFAULTS.GAMES.SUGAR_DADDY.GAME_CODE) {
+          gameConfig = DEFAULTS.GAMES.SUGAR_DADDY;
+        } else if (game.gameCode === DEFAULTS.GAMES.CHICKEN_ROAD.GAME_CODE) {
+          gameConfig = DEFAULTS.GAMES.CHICKEN_ROAD;
+        } else if (game.gameCode === DEFAULTS.GAMES.DIVER.GAME_CODE) {
+          gameConfig = DEFAULTS.GAMES.DIVER;
+        }
+
+        // Get metadata for this game
+        const gameMetadata = metadataMap.get(game.gameCode);
+
+        // Build response object
+        const dashboardGame: any = {
+          gameCode: game.gameCode,
+          gameName: game.gameName,
+          displayName: gameConfig?.GAME_NAME || game.gameName,
+          platform: game.platform,
+          gameType: game.gameType,
+          isActive: game.isActive,
+          description: gameMetadata?.description || null,
+          thumbnail: gameMetadata?.thumbnail || null,
+          demoGif: gameMetadata?.demoGif || null,
+          images: gameMetadata?.images || [],
+          rtp: gameConfig?.RTP || null,
+          betConfig: {
+            minBetAmount: gameConfig?.BET_CONFIG?.minBetAmount || gameConfig?.betConfig?.minBetAmount || '0.01',
+            maxBetAmount: gameConfig?.BET_CONFIG?.maxBetAmount || gameConfig?.betConfig?.maxBetAmount || '200.00',
+            currency: gameConfig?.BET_CONFIG?.currency || gameConfig?.betConfig?.currency || 'INR',
+          },
+          frontendHost: gameConfig?.FRONTEND?.DEFAULT_HOST || null,
+        };
+
+        return dashboardGame;
+      });
+
+    return { 
+      userId,
+      agentId,
+      cert,
+      games: dashboardGames 
+    };
   }
 
   /**
