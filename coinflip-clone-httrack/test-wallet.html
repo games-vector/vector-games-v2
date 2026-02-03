@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wallet Test - CoinFlip Game</title>
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      overflow: hidden;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 30px;
+      text-align: center;
+    }
+
+    .header h1 {
+      font-size: 32px;
+      margin-bottom: 10px;
+    }
+
+    .header p {
+      opacity: 0.9;
+      font-size: 14px;
+    }
+
+    .content {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 0;
+      min-height: 600px;
+    }
+
+    .sidebar {
+      background: #f8f9fa;
+      padding: 30px;
+      border-right: 1px solid #e0e0e0;
+      overflow-y: auto;
+      max-height: calc(100vh - 200px);
+    }
+
+    .main {
+      padding: 30px;
+      overflow-y: auto;
+      max-height: calc(100vh - 200px);
+    }
+
+    .section {
+      margin-bottom: 30px;
+    }
+
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 15px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #667eea;
+    }
+
+    .input-group {
+      margin-bottom: 15px;
+    }
+
+    .input-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #555;
+      margin-bottom: 6px;
+    }
+
+    .input-group input,
+    .input-group select,
+    .input-group textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      transition: border-color 0.2s;
+    }
+
+    .input-group input:focus,
+    .input-group select:focus,
+    .input-group textarea:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .input-group textarea {
+      resize: vertical;
+      font-family: 'Courier New', monospace;
+      min-height: 80px;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .btn-success {
+      background: #10b981;
+      color: white;
+    }
+
+    .btn-danger {
+      background: #ef4444;
+      color: white;
+    }
+
+    .btn-warning {
+      background: #f59e0b;
+      color: white;
+    }
+
+    .status {
+      padding: 12px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      text-align: center;
+    }
+
+    .status.disconnected {
+      background: #fee;
+      color: #c00;
+      border: 1px solid #fcc;
+    }
+
+    .status.connected {
+      background: #efe;
+      color: #0a0;
+      border: 1px solid #cfc;
+    }
+
+    .status.connecting {
+      background: #fef3cd;
+      color: #856404;
+      border: 1px solid #ffeaa7;
+    }
+
+    .log-container {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      border-radius: 8px;
+      padding: 20px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      height: 500px;
+      overflow-y: auto;
+      line-height: 1.6;
+    }
+
+    .log-entry {
+      margin-bottom: 8px;
+      padding: 6px 10px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.05);
+    }
+
+    .log-entry.info {
+      border-left: 3px solid #3b82f6;
+    }
+
+    .log-entry.success {
+      border-left: 3px solid #10b981;
+    }
+
+    .log-entry.error {
+      border-left: 3px solid #ef4444;
+      background: rgba(239, 68, 68, 0.1);
+    }
+
+    .log-entry.event {
+      border-left: 3px solid #8b5cf6;
+    }
+
+    .log-time {
+      color: #888;
+      font-size: 11px;
+      margin-right: 8px;
+    }
+
+    .log-label {
+      font-weight: 600;
+      margin-right: 8px;
+    }
+
+    .balance-display {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: white;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .balance-display .label {
+      font-size: 12px;
+      opacity: 0.9;
+      margin-bottom: 5px;
+    }
+
+    .balance-display .value {
+      font-size: 32px;
+      font-weight: 700;
+    }
+
+    .action-buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    .action-buttons button {
+      padding: 10px;
+      font-size: 13px;
+    }
+
+    .quick-actions {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .quick-actions button {
+      padding: 8px;
+      font-size: 12px;
+    }
+
+    @media (max-width: 1024px) {
+      .content {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        border-right: none;
+        border-bottom: 1px solid #e0e0e0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🎰 Wallet Test - CoinFlip Game</h1>
+      <p>Test wallet operations, socket connection, and game actions</p>
+    </div>
+
+    <div class="content">
+      <!-- Sidebar: Configuration & Actions -->
+      <div class="sidebar">
+        <div class="section">
+          <div class="section-title">Connection Status</div>
+          <div id="status" class="status disconnected">Disconnected</div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Configuration</div>
+          <div class="input-group">
+            <label>Server URL</label>
+            <input type="text" id="serverUrl" value="http://localhost:3000" placeholder="http://localhost:3000">
+          </div>
+          <div class="input-group">
+            <label>Agent ID</label>
+            <input type="text" id="agentId" value="agent1" placeholder="agent1">
+          </div>
+          <div class="input-group">
+            <label>User ID</label>
+            <input type="text" id="userId" value="user123" placeholder="user123">
+          </div>
+          <div class="input-group">
+            <label>Game Code</label>
+            <input type="text" id="gameCode" value="coinflip" placeholder="coinflip">
+          </div>
+          <div class="input-group">
+            <label>Token (JWT)</label>
+            <input type="text" id="token" placeholder="Optional JWT token">
+          </div>
+          <button class="btn-primary" onclick="connect()">Connect to Socket</button>
+          <button class="btn-danger" onclick="disconnect()" style="margin-top: 10px;">Disconnect</button>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Current Balance</div>
+          <div class="balance-display">
+            <div class="label">Balance</div>
+            <div class="value" id="balanceValue">--.--</div>
+            <div class="label" id="balanceCurrency">INR</div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Game Actions</div>
+          
+          <div class="input-group">
+            <label>Action</label>
+            <select id="actionType" onchange="updateActionPayload()">
+              <option value="bet">Bet (Place Bet)</option>
+              <option value="step">Step (ROUNDS mode)</option>
+              <option value="withdraw">Withdraw (Cashout)</option>
+              <option value="get-game-state">Get Game State</option>
+              <option value="get-game-seeds">Get Game Seeds</option>
+              <option value="get-game-config">Get Game Config</option>
+            </select>
+          </div>
+
+          <div class="input-group" id="payloadSection">
+            <label>Payload (JSON)</label>
+            <textarea id="actionPayload">{
+  "betAmount": "1.00",
+  "currency": "INR",
+  "choice": "HEADS",
+  "playMode": "QUICK"
+}</textarea>
+          </div>
+
+          <button class="btn-success" onclick="sendAction()">Send Action</button>
+
+          <div class="quick-actions">
+            <button class="btn-warning" onclick="quickBet('HEADS')">Quick Bet: HEADS (1 INR)</button>
+            <button class="btn-warning" onclick="quickBet('TAILS')">Quick Bet: TAILS (1 INR)</button>
+            <button class="btn-primary" onclick="getGameState()">Get Game State</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main: Logs -->
+      <div class="main">
+        <div class="section">
+          <div class="section-title">Event Logs</div>
+          <button class="btn-danger" onclick="clearLogs()" style="margin-bottom: 10px; width: auto; padding: 8px 16px; font-size: 12px;">Clear Logs</button>
+          <div class="log-container" id="logs"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let socket = null;
+    let isConnected = false;
+
+    function log(message, type = 'info') {
+      const logsContainer = document.getElementById('logs');
+      const time = new Date().toLocaleTimeString();
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      
+      const typeLabels = {
+        info: 'ℹ️ INFO',
+        success: '✅ SUCCESS',
+        error: '❌ ERROR',
+        event: '📡 EVENT'
+      };
+      
+      entry.innerHTML = `<span class="log-time">${time}</span><span class="log-label">${typeLabels[type]}</span>${message}`;
+      logsContainer.appendChild(entry);
+      logsContainer.scrollTop = logsContainer.scrollHeight;
+    }
+
+    function updateStatus(status, message) {
+      const statusEl = document.getElementById('status');
+      statusEl.className = `status ${status}`;
+      statusEl.textContent = message;
+    }
+
+    function clearLogs() {
+      document.getElementById('logs').innerHTML = '';
+      log('Logs cleared', 'info');
+    }
+
+    function updateBalance(balance, currency = 'INR') {
+      document.getElementById('balanceValue').textContent = parseFloat(balance).toFixed(2);
+      document.getElementById('balanceCurrency').textContent = currency;
+    }
+
+    function updateActionPayload() {
+      const action = document.getElementById('actionType').value;
+      const payloadSection = document.getElementById('payloadSection');
+      const payloadTextarea = document.getElementById('actionPayload');
+
+      const payloads = {
+        'bet': JSON.stringify({
+          betAmount: "1.00",
+          currency: "INR",
+          choice: "HEADS",
+          playMode: "QUICK"
+        }, null, 2),
+        'step': JSON.stringify({
+          choice: "HEADS",
+          roundNumber: 1
+        }, null, 2),
+        'withdraw': '{}',
+        'get-game-state': '{}',
+        'get-game-seeds': '{}',
+        'get-game-config': '{}'
+      };
+
+      payloadTextarea.value = payloads[action] || '{}';
+      payloadSection.style.display = ['get-game-state', 'get-game-seeds', 'get-game-config', 'withdraw'].includes(action) ? 'none' : 'block';
+    }
+
+    function connect() {
+      if (isConnected) {
+        log('Already connected!', 'info');
+        return;
+      }
+
+      const serverUrl = document.getElementById('serverUrl').value;
+      const agentId = document.getElementById('agentId').value;
+      const userId = document.getElementById('userId').value;
+      const gameCode = document.getElementById('gameCode').value;
+      const token = document.getElementById('token').value;
+
+      updateStatus('connecting', 'Connecting...');
+      log(`Connecting to ${serverUrl}...`, 'info');
+      log(`Agent: ${agentId}, User: ${userId}, Game: ${gameCode}`, 'info');
+
+      const query = {
+        token: token || undefined,
+        gameCode: gameCode,
+        userId: userId,
+        agentId: agentId,
+        operatorId: agentId
+      };
+
+      socket = io(serverUrl, {
+        query: query,
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionAttempts: 5
+      });
+
+      socket.on('connect', () => {
+        isConnected = true;
+        updateStatus('connected', `Connected (${socket.id})`);
+        log(`Socket connected: ${socket.id}`, 'success');
+      });
+
+      socket.on('disconnect', (reason) => {
+        isConnected = false;
+        updateStatus('disconnected', 'Disconnected');
+        log(`Socket disconnected: ${reason}`, 'error');
+      });
+
+      socket.on('connect_error', (error) => {
+        updateStatus('disconnected', 'Connection Error');
+        log(`Connection error: ${error.message}`, 'error');
+      });
+
+      socket.on('connection-error', (data) => {
+        updateStatus('disconnected', 'Connection Error');
+        log(`Server connection error: ${JSON.stringify(data)}`, 'error');
+      });
+
+      // Game events
+      socket.on('onBalanceChange', (data) => {
+        log(`Balance: ${data.balance} ${data.currency}`, 'event');
+        updateBalance(data.balance, data.currency);
+      });
+
+      socket.on('betsRanges', (data) => {
+        log(`Bets Ranges: ${JSON.stringify(data)}`, 'event');
+      });
+
+      socket.on('betConfig', (data) => {
+        log(`Bet Config: ${JSON.stringify(data)}`, 'event');
+      });
+
+      socket.on('myData', (data) => {
+        log(`My Data: ${JSON.stringify(data)}`, 'event');
+      });
+
+      socket.on('currencies', (data) => {
+        log(`Currencies: ${JSON.stringify(data)}`, 'event');
+      });
+
+      socket.on('pong', (data) => {
+        log(`Pong: ${JSON.stringify(data)}`, 'event');
+      });
+
+      // Generic response listener
+      socket.onAny((event, data) => {
+        if (!['onBalanceChange', 'betsRanges', 'betConfig', 'myData', 'currencies', 'pong', 'connect', 'disconnect'].includes(event)) {
+          log(`Event '${event}': ${JSON.stringify(data)}`, 'event');
+        }
+      });
+    }
+
+    function disconnect() {
+      if (!socket || !isConnected) {
+        log('Not connected', 'info');
+        return;
+      }
+      socket.disconnect();
+      socket = null;
+      isConnected = false;
+      updateStatus('disconnected', 'Disconnected');
+      log('Socket disconnected manually', 'info');
+    }
+
+    function sendAction() {
+      if (!socket || !isConnected) {
+        log('Not connected! Connect first.', 'error');
+        return;
+      }
+
+      const action = document.getElementById('actionType').value;
+      let payload;
+      
+      try {
+        const payloadText = document.getElementById('actionPayload').value.trim();
+        payload = payloadText ? JSON.parse(payloadText) : {};
+      } catch (e) {
+        log(`Invalid JSON payload: ${e.message}`, 'error');
+        return;
+      }
+
+      const message = {
+        action: action,
+        payload: payload
+      };
+
+      log(`Sending action '${action}': ${JSON.stringify(payload)}`, 'info');
+
+      socket.emit('gameService', message, (response) => {
+        if (response && response.error) {
+          log(`Action failed: ${JSON.stringify(response.error)}`, 'error');
+        } else {
+          log(`Action response: ${JSON.stringify(response)}`, 'success');
+        }
+      });
+    }
+
+    function quickBet(choice) {
+      if (!socket || !isConnected) {
+        log('Not connected! Connect first.', 'error');
+        return;
+      }
+
+      const message = {
+        action: 'bet',
+        payload: {
+          betAmount: '1.00',
+          currency: 'INR',
+          choice: choice,
+          playMode: 'QUICK'
+        }
+      };
+
+      log(`Quick bet: ${choice} (1 INR)`, 'info');
+
+      socket.emit('gameService', message, (response) => {
+        if (response && response.error) {
+          log(`Bet failed: ${JSON.stringify(response.error)}`, 'error');
+        } else {
+          log(`Bet response: ${JSON.stringify(response)}`, 'success');
+        }
+      });
+    }
+
+    function getGameState() {
+      if (!socket || !isConnected) {
+        log('Not connected! Connect first.', 'error');
+        return;
+      }
+
+      const message = {
+        action: 'get-game-state',
+        payload: {}
+      };
+
+      log('Getting game state...', 'info');
+
+      socket.emit('gameService', message, (response) => {
+        if (response && response.error) {
+          log(`Get state failed: ${JSON.stringify(response.error)}`, 'error');
+        } else {
+          log(`Game state: ${JSON.stringify(response)}`, 'success');
+        }
+      });
+    }
+
+    // Initialize with default payload
+    updateActionPayload();
+
+    // Welcome message
+    log('Wallet test page loaded. Configure settings and click "Connect to Socket".', 'info');
+    log('Make sure your backend is running and an agent exists in the DB.', 'info');
+  </script>
+</body>
+</html>

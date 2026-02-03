@@ -1,0 +1,49 @@
+# Local development: MySQL + Redis only. Run the app with npm run start:dev.
+# Usage: docker compose -f docker-compose.dev.fixed.yml up -d
+
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: vector-games-mysql-dev
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: dev
+      MYSQL_DATABASE: vectorgames
+    ports:
+      - "127.0.0.1:3307:3306"
+    volumes:
+      - mysql_dev_data:/var/lib/mysql
+    networks:
+      - vector-games-dev
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pdev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: vector-games-redis-dev
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - redis_dev_data:/data
+    networks:
+      - vector-games-dev
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  mysql_dev_data:
+  redis_dev_data:
+
+networks:
+  vector-games-dev:
+    driver: bridge
