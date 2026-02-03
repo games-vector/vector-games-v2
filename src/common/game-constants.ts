@@ -12,7 +12,7 @@ export const GAME_CONSTANTS = {
     MAX_COEFF: 1000.00,
     COEFF_INCREMENT: 0.05,
     PENDING_BET_TTL: 300, // 5 minutes
-    COEFFICIENT_HISTORY_LIMIT: 50,
+    COEFFICIENT_HISTORY_LIMIT: 51,
     LEADER_LOCK_TTL: 30, // seconds
     WAIT_DURATION_MS: 10000, // Wait time before game starts
     RTP_EXPONENT_MIN: 0.2,

@@ -31,6 +31,7 @@ import { CommonApiFunctionsModule } from './routes/common-api-functions/common-a
 import { GameApiRoutesModule } from './routes/game-api-routes/game-api-routes.module';
 import { BetCleanupSchedulerModule } from './modules/bet-cleanup/bet-cleanup-scheduler.module';
 import { RefundSchedulerModule } from './modules/refund-scheduler/refund-scheduler.module';
+import { WalletNotificationModule } from './modules/wallet-notification/wallet-notification.module';
 
 @Module({
   imports: [
@@ -150,11 +151,12 @@ import { RefundSchedulerModule } from './modules/refund-scheduler/refund-schedul
     // Common Schedulers
     BetCleanupSchedulerModule, // Monthly bet cleanup
     RefundSchedulerModule, // Refunds old PLACED bets
+    WalletNotificationModule, // Wallet failure notifications
     GamesModule, // Provides GameDispatcherService globally - MUST be imported before game modules
     // Common Game Gateway - handles all WebSocket connections
     // Game Modules - register their handlers with dispatcher
     SugarDaddyGameModule, // Depends on GamesModule (GameDispatcherService)
-    DiverGameModule, // Depends on GamesModule (GameDispatcherService)
+    // DiverGameModule, // Depends on GamesModule (GameDispatcherService)
     ChickenRoadGameModule, // Depends on GamesModule (GameDispatcherService)
     CoinFlipGameModule, // Depends on GamesModule (GameDispatcherService)
     // API Routes

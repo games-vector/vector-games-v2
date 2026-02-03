@@ -624,51 +624,16 @@ export class SugarDaddyGameHandler implements IGameHandler {
 
   broadcastGameStateChange(gameCode: string | null, payload: GameStateChangePayload): void {
     if (!this.server || !this.server.sockets) {
-      this.logger.warn(
-        `[BROADCAST_STATE] Cannot broadcast: server not initialized. gameCode=${gameCode} status=${payload.status}`,
-      );
       return;
     }
 
     const eventName = WS_EVENTS.GAME_SERVICE_ON_CHANGE_STATE;
     const room = gameCode ? `game:${gameCode}` : null;
 
-    this.logger.log(
-      `[BROADCAST_STATE] Broadcasting game state: event=${eventName} room=${room || 'all'} status=${payload.status} roundId=${payload.roundId} betsCount=${payload.bets.values.length} crashCoeff=${payload.coeffCrash || 'N/A'}`,
-    );
-
     if (room) {
-      // Safely get client count from adapter if available
-      let clientCount = 0;
-      try {
-        if (this.server.sockets?.adapter?.rooms) {
-          const roomSockets = this.server.sockets.adapter.rooms.get(room);
-          clientCount = roomSockets ? roomSockets.size : 0;
-        }
-      } catch (error) {
-        this.logger.debug(
-          `[BROADCAST_STATE] Could not get client count from adapter: ${(error as Error).message}`,
-        );
-      }
-      
-      if (clientCount > 0) {
-        this.logger.log(
-          `[BROADCAST_STATE] Room ${room} has ${clientCount} connected clients`,
-        );
-      } else {
-        this.logger.debug(
-          `[BROADCAST_STATE] Room ${room} client count unavailable or 0 (will still broadcast)`,
-        );
-      }
-      
       this.server.to(room).emit(eventName, payload);
-      this.logger.log(
-        `[BROADCAST_STATE] ✅ Emitted ${eventName} to room ${room}${clientCount > 0 ? ` with ${clientCount} clients` : ''}`,
-      );
     } else {
-      this.logger.log(`[BROADCAST_STATE] Broadcasting to all clients (no room specified)`);
       this.server.emit(eventName, payload);
-      this.logger.log(`[BROADCAST_STATE] ✅ Emitted ${eventName} to all clients`);
     }
   }
 
@@ -720,7 +685,21 @@ export class SugarDaddyGameHandler implements IGameHandler {
       coeffCrash: gameState?.coeffCrash ?? (currentCoeff?.coeff || null),
     };
 
-    const coefficients = await this.sugarDaddyGameService.getCoefficientsHistory(50);
+    let coefficients = await this.sugarDaddyGameService.getCoefficientsHistory(51);
+    
+    // Ensure order is correct: oldest at index 0, newest at index 50
+    // Verify by checking if the last item has a higher gameId than the first (newer rounds have higher gameIds)
+    if (coefficients.length > 1) {
+      const firstGameId = coefficients[0]?.gameId || 0;
+      const lastGameId = coefficients[coefficients.length - 1]?.gameId || 0;
+      if (lastGameId < firstGameId) {
+        // Order is reversed, fix it
+        this.logger.warn(
+          `[COEFF_HISTORY] Coefficient history order is reversed in onConnectGame, fixing it. First gameId=${firstGameId}, Last gameId=${lastGameId}`,
+        );
+        coefficients = coefficients.reverse();
+      }
+    }
 
     const payload: OnConnectGamePayload = {
       success: true,
@@ -778,63 +757,108 @@ export class SugarDaddyGameHandler implements IGameHandler {
   }
 
   startCoefficientBroadcast(gameCode: string | null = null): void {
-    if (this.coefficientUpdateInterval) {
-      this.stopCoefficientBroadcast();
-    }
-
-    this.coefficientUpdateInterval = setInterval(async () => {
-      const activeRound = await this.sugarDaddyGameService.getActiveRound();
-
-      if (activeRound && activeRound.status === GameStatus.IN_GAME && activeRound.isRunning) {
-        const updated = await this.sugarDaddyGameService.updateCoefficient();
-
-        const coeff = await this.sugarDaddyGameService.getCurrentCoefficient();
-        if (coeff) {
-          this.broadcastCoefficientUpdate(gameCode, coeff);
-        }
-
-        const autoCashoutBets = await this.sugarDaddyGameService.getAutoCashoutBets();
-        if (autoCashoutBets.length > 0) {
-          for (const { playerGameId, bet } of autoCashoutBets) {
-            this.processAutoCashout(playerGameId, bet, gameCode).catch((error) => {
-              this.logger.error(
-                `[AUTO_CASHOUT_ERROR] Failed to process auto-cashout for playerGameId=${playerGameId}: ${error.message}`,
-              );
-            });
-          }
-        }
-
-        if (!updated) {
-          this.logger.log(
-            `[COEFF_BROADCAST] Coefficient update returned false, round ended. Stopping broadcast and transitioning to FINISH_GAME`,
-          );
-          this.stopCoefficientBroadcast();
-          
-          // Get and broadcast FINISH_GAME state immediately
-          const gameState = await this.sugarDaddyGameService.getCurrentGameState();
-          if (gameState) {
-            this.logger.log(
-              `[COEFF_BROADCAST] Round ended, preparing to broadcast FINISH_GAME state: roundId=${gameState.roundId} status=${gameState.status} crashCoeff=${gameState.coeffCrash || 'N/A'} betsCount=${gameState.bets.values.length} hasCoefficients=${!!gameState.coefficients}`,
-            );
-            this.broadcastGameStateChange(gameCode, gameState);
-            this.logger.log(
-              `[COEFF_BROADCAST] ✅ FINISH_GAME state broadcasted via coefficient broadcast`,
-            );
-          } else {
-            this.logger.error(
-              `[COEFF_BROADCAST] ❌ Failed to get game state after round ended`,
-            );
-          }
-          
-          if (this.onRoundEndCallback) {
-            this.logger.log(`[COEFF_BROADCAST] Calling onRoundEndCallback`);
-            this.onRoundEndCallback();
-          }
-        }
-      } else {
+    try {
+      if (this.coefficientUpdateInterval) {
         this.stopCoefficientBroadcast();
       }
-    }, 200);
+
+      this.coefficientUpdateInterval = setInterval(async () => {
+        try {
+          const shouldContinue = await this.processCoefficientUpdate(gameCode);
+          if (!shouldContinue) {
+            await this.handleRoundEnd(gameCode);
+          }
+        } catch (error) {
+          this.logger.error(`[COEFF_BROADCAST] Error: ${(error as Error).message}`);
+        }
+      }, 200);
+    } catch (error) {
+      this.logger.error(`[COEFF_BROADCAST] Start error: ${(error as Error).message}`);
+    }
+  }
+
+  private async processCoefficientUpdate(gameCode: string | null): Promise<boolean> {
+          const activeRound = await this.sugarDaddyGameService.getActiveRound();
+
+    if (!activeRound || activeRound.status !== GameStatus.IN_GAME || !activeRound.isRunning) {
+      this.stopCoefficientBroadcast();
+      return false;
+    }
+
+            const updated = await this.sugarDaddyGameService.updateCoefficient();
+
+            const coeff = await this.sugarDaddyGameService.getCurrentCoefficient();
+            if (coeff) {
+              this.broadcastCoefficientUpdate(gameCode, coeff);
+            }
+
+    await this.processAutoCashouts(gameCode);
+    
+    return updated;
+  }
+
+  private async processAutoCashouts(gameCode: string | null): Promise<void> {
+            const autoCashoutBets = await this.sugarDaddyGameService.getAutoCashoutBets();
+    if (autoCashoutBets.length === 0) return;
+
+              for (const { playerGameId, bet, isMockBet } of autoCashoutBets) {
+                if (isMockBet) {
+        await this.processMockBetCashout(playerGameId, gameCode);
+      } else {
+        this.processAutoCashout(playerGameId, bet, gameCode).catch((error) => {
+          this.logger.error(`[AUTO_CASHOUT] Error: ${(error as Error).message}`);
+        });
+      }
+    }
+  }
+
+  private async processMockBetCashout(playerGameId: string, gameCode: string | null): Promise<void> {
+                  const activeRound = await this.sugarDaddyGameService.getActiveRound();
+    if (!activeRound) return;
+
+                    const schedule = activeRound.mockBetsCashoutSchedule.get(playerGameId);
+    if (!schedule) return;
+
+                      const mockBet = activeRound.bets.get(playerGameId);
+    if (!mockBet || !mockBet.userId.startsWith('mock_')) return;
+
+    mockBet.coeffWin = schedule.cashoutCoeff.toFixed(2);
+                        const betAmount = parseFloat(mockBet.betAmount || '0');
+    mockBet.winAmount = Math.round(betAmount * schedule.cashoutCoeff).toString();
+                        activeRound.bets.set(playerGameId, mockBet);
+                        activeRound.mockBetsCashoutSchedule.delete(playerGameId);
+    
+                        await this.sugarDaddyGameService.saveActiveRoundToRedis();
+                        
+                        const gameState = await this.sugarDaddyGameService.getCurrentGameState();
+                        if (gameState) {
+                          this.broadcastGameStateChange(gameCode, gameState);
+                        }
+                      }
+
+  private async handleRoundEnd(gameCode: string | null): Promise<void> {
+              this.stopCoefficientBroadcast();
+              
+              const activeRound = await this.sugarDaddyGameService.getActiveRound();
+    if (!activeRound?.roundId) return;
+
+                try {
+      await this.sugarDaddyGameBetService.settleUncashedBets(
+        activeRound.roundId,
+        gameCode || 'sugar-daddy',
+                  );
+                } catch (error) {
+      this.logger.error(`[COEFF_BROADCAST] Settlement error: ${(error as Error).message}`);
+              }
+              
+              const gameState = await this.sugarDaddyGameService.getCurrentGameState();
+              if (gameState) {
+                this.broadcastGameStateChange(gameCode, gameState);
+              }
+              
+              if (this.onRoundEndCallback) {
+                this.onRoundEndCallback();
+    }
   }
 
   stopCoefficientBroadcast(): void {
@@ -845,31 +869,52 @@ export class SugarDaddyGameHandler implements IGameHandler {
   }
 
   startGameStateBroadcast(gameCode: string | null = null): void {
-    if (this.gameStateBroadcastInterval) {
-      this.stopGameStateBroadcast();
+    try {
+      if (this.gameStateBroadcastInterval) {
+        this.stopGameStateBroadcast();
+      }
+
+      // Log removed to reduce log size - game state broadcast is working normally
+      
+      this.sugarDaddyGameService.getCurrentGameState()
+        .then((initialGameState) => {
+          if (initialGameState) {
+            this.broadcastGameStateChange(gameCode, initialGameState);
+          }
+          // Log removed to reduce log size
+        })
+        .catch((error) => {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.logger.error(`[GAME_STATE_BROADCAST] Error getting initial game state: ${errorMessage}`);
+        });
+
+      this.gameStateBroadcastInterval = setInterval(async () => {
+        try {
+          const gameState = await this.sugarDaddyGameService.getCurrentGameState();
+          if (gameState) {
+            // Skip broadcasting FINISH_GAME state in periodic interval to reduce redundant broadcasts
+            // FINISH_GAME is already broadcasted explicitly by coefficient broadcast and scheduler's endRound
+            if (gameState.status === GameStatus.FINISH_GAME) {
+              return;
+            }
+            this.broadcastGameStateChange(gameCode, gameState);
+          }
+          // Log removed to reduce log size - periodic broadcast is working normally
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorStack = error instanceof Error ? error.stack : undefined;
+          this.logger.error(
+            `[GAME_STATE_BROADCAST] Error in periodic broadcast: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
+          );
+        }
+      }, 3000);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        `[GAME_STATE_BROADCAST] Error starting game state broadcast: ${errorMessage}${errorStack ? `\nStack: ${errorStack}` : ''}`,
+      );
     }
-
-    this.sugarDaddyGameService.getCurrentGameState().then((initialGameState) => {
-      if (initialGameState) {
-        this.logger.log(
-          `[GAME_STATE_BROADCAST] Broadcasting initial game state: status=${initialGameState.status} roundId=${initialGameState.roundId}`,
-        );
-        this.broadcastGameStateChange(gameCode, initialGameState);
-      }
-    });
-
-    this.logger.log(`[GAME_STATE_BROADCAST] Starting periodic game state broadcast (every 3s) for gameCode=${gameCode}`);
-    this.gameStateBroadcastInterval = setInterval(async () => {
-      const gameState = await this.sugarDaddyGameService.getCurrentGameState();
-      if (gameState) {
-        this.logger.debug(
-          `[GAME_STATE_BROADCAST] Periodic broadcast: status=${gameState.status} roundId=${gameState.roundId} betsCount=${gameState.bets.values.length}`,
-        );
-        this.broadcastGameStateChange(gameCode, gameState);
-      } else {
-        this.logger.warn(`[GAME_STATE_BROADCAST] No game state available for periodic broadcast`);
-      }
-    }, 3000);
   }
 
   stopGameStateBroadcast(): void {
@@ -885,6 +930,14 @@ export class SugarDaddyGameHandler implements IGameHandler {
     gameCode: string | null,
   ): Promise<void> {
     try {
+      // CRITICAL: Check if bet is mock bet - mock bets should not go through wallet/database
+      if (bet.userId.startsWith('mock_')) {
+        this.logger.debug(
+          `[AUTO_CASHOUT] Skipping mock bet cashout in processAutoCashout (handled separately): playerGameId=${playerGameId}`,
+        );
+        return;
+      }
+
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
       if (!activeRound) {
         return;
@@ -1115,7 +1168,7 @@ export class SugarDaddyGameHandler implements IGameHandler {
       "HUF": 350.19,
       "IDR": 16443.4,
       "ILS": 3.3960999999999997,
-      "INR": 87.503,
+      "INR": 1,
       "IQD": 1310,
       "IRR": 42112.5,
       "ISK": 124.46999999999998,

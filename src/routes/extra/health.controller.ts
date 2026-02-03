@@ -1,6 +1,7 @@
 import { Controller, Get, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 @ApiTags('health')
@@ -8,6 +9,7 @@ import { DataSource } from 'typeorm';
 export class HealthController {
   constructor(
     private readonly cfg: ConfigService,
+    @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
 

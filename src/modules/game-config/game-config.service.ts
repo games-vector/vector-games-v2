@@ -68,7 +68,7 @@ export class GameConfigService {
    * @returns Config value as string, or null if not found (allows graceful fallback to defaults)
    */
   async getConfig(gameCode: string, key: string): Promise<string | null> {
-    this.logger.debug(`[getConfig] gameCode=${gameCode} key=${key}`);
+    // Log removed to reduce log size - config retrieval is working normally
     
     // Try fetching from game-specific config table first
     const config = await this.getConfigFromTable(gameCode, key);
@@ -77,7 +77,6 @@ export class GameConfigService {
     }
     
     // Return null if not found (allows graceful fallback to defaults in calling code)
-    this.logger.debug(`[getConfig] Config not found for game: ${gameCode}, key: ${key} - will use defaults`);
     return null;
   }
 }

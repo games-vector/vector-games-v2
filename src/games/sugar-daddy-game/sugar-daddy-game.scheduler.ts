@@ -18,6 +18,9 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
   private nextRoundTimer: NodeJS.Timeout | null = null;
   private leaderRenewTimer: NodeJS.Timeout | null = null;
   private leaderElectionTimer: NodeJS.Timeout | null = null;
+  private retryTimer: NodeJS.Timeout | null = null;
+  private mockBetsAdditionTimer: NodeJS.Timeout | null = null;
+  private mockBetsToAdd: Array<{ playerGameId: string; bet: any }> = [];
   private isRunning = false;
   private isLeader = false;
 
@@ -28,18 +31,28 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    this.sugarDaddyGameHandler.setOnRoundEndCallback(() => {
-      this.onRoundEnded();
-    });
-    
-    setTimeout(() => {
-      this.startLeaderElection();
-    }, 2000);
+    try {
+      this.sugarDaddyGameHandler.setOnRoundEndCallback(() => {
+        this.onRoundEnded();
+      });
+      
+      setTimeout(() => {
+        this.startLeaderElection().catch((error) => {
+          this.logger.error(`[LEADER_ELECTION] Error: ${(error as Error).message}`);
+        });
+      }, 2000);
+    } catch (error) {
+      this.logger.error(`[SCHEDULER] Init error: ${(error as Error).message}`);
+    }
   }
 
   onModuleDestroy() {
     this.stopGameLoop();
     this.stopLeaderElection();
+    if (this.mockBetsAdditionTimer) {
+      clearInterval(this.mockBetsAdditionTimer);
+      this.mockBetsAdditionTimer = null;
+    }
     this.sugarDaddyGameService.releaseLeaderLock(this.POD_ID).catch((error) => {
       this.logger.error(`[LEADER_ELECTION] Error releasing lock on shutdown: ${error.message}`);
     });
@@ -50,16 +63,25 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
    * Tries to acquire lock and become the game engine leader
    */
   private async startLeaderElection(): Promise<void> {
-    const acquired = await this.sugarDaddyGameService.acquireLeaderLock(this.POD_ID);
-    
-    if (acquired) {
-      this.isLeader = true;
-      this.logger.log(`[LEADER_ELECTION] Pod ${this.POD_ID} is now the leader`);
-      this.startGameLoop();
-      this.startLeaderRenewal();
-    } else {
+    try {
+      const acquired = await this.sugarDaddyGameService.acquireLeaderLock(this.POD_ID);
+      
+      if (acquired) {
+        this.isLeader = true;
+        this.startGameLoop();
+        this.startLeaderRenewal();
+      } else {
+        this.leaderElectionTimer = setTimeout(() => {
+          this.startLeaderElection().catch((error) => {
+            this.logger.error(`[LEADER_ELECTION] Retry error: ${(error as Error).message}`);
+          });
+        }, 5000);
+      }
+    } catch (error) {
       this.leaderElectionTimer = setTimeout(() => {
-        this.startLeaderElection();
+        this.startLeaderElection().catch((err) => {
+          this.logger.error(`[LEADER_ELECTION] Error retry: ${(err as Error).message}`);
+        });
       }, 5000);
     }
   }
@@ -76,7 +98,6 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
       if (this.isLeader) {
         const stillLeader = await this.sugarDaddyGameService.renewLeaderLock(this.POD_ID);
         if (!stillLeader) {
-          this.logger.warn(`[LEADER_ELECTION] Pod ${this.POD_ID} lost leadership - stopping game loop`);
           this.isLeader = false;
           this.stopGameLoop();
           this.startLeaderElection();
@@ -103,11 +124,7 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
    * Start the game loop (only if leader)
    */
   private startGameLoop(): void {
-    if (this.isRunning) {
-      return;
-    }
-
-    if (!this.isLeader) {
+    if (this.isRunning || !this.isLeader) {
       return;
     }
 
@@ -119,6 +136,13 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
    * Stop the game loop
    */
   private stopGameLoop(): void {
+    this.clearAllTimers();
+    this.isRunning = false;
+    this.sugarDaddyGameHandler.stopCoefficientBroadcast();
+    this.sugarDaddyGameHandler.stopGameStateBroadcast();
+  }
+
+  private clearAllTimers(): void {
     if (this.waitTimer) {
       clearTimeout(this.waitTimer);
       this.waitTimer = null;
@@ -127,8 +151,22 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
       clearTimeout(this.nextRoundTimer);
       this.nextRoundTimer = null;
     }
-    this.isRunning = false;
-    this.sugarDaddyGameHandler.stopCoefficientBroadcast();
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    if (this.leaderElectionTimer) {
+      clearTimeout(this.leaderElectionTimer);
+      this.leaderElectionTimer = null;
+    }
+    if (this.leaderRenewTimer) {
+      clearInterval(this.leaderRenewTimer);
+      this.leaderRenewTimer = null;
+    }
+    if (this.mockBetsAdditionTimer) {
+      clearInterval(this.mockBetsAdditionTimer);
+      this.mockBetsAdditionTimer = null;
+    }
   }
 
   private onRoundEnded(): void {
@@ -149,7 +187,6 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
 
   private async startNewRound(): Promise<void> {
     if (!this.isLeader) {
-      this.logger.warn('[SUGAR_DADDY_SCHEDULER] Cannot start new round - not the leader');
       return;
     }
 
@@ -159,7 +196,6 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
         if (activeRound.status === GameStatus.FINISH_GAME) {
           await this.sugarDaddyGameService.clearActiveRound();
         } else {
-          this.logger.warn('[SUGAR_DADDY_SCHEDULER] Previous round still active, forcing end');
           await this.endRound();
           await new Promise(resolve => setTimeout(resolve, 1000));
           await this.sugarDaddyGameService.clearActiveRound();
@@ -174,9 +210,7 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
       );
       
       if (pendingBetsResult.errors.length > 0) {
-        this.logger.warn(
-          `[SUGAR_DADDY_SCHEDULER] Pending bet errors: ${JSON.stringify(pendingBetsResult.errors)}`,
-        );
+        this.logger.warn(`[SCHEDULER] Pending bet errors: ${pendingBetsResult.errors.length}`);
       }
 
       const gameState = await this.sugarDaddyGameService.getCurrentGameState();
@@ -184,67 +218,138 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
         this.sugarDaddyGameHandler.broadcastGameStateChange(this.GAME_CODE, gameState);
       }
 
+      this.startGradualMockBetsAddition();
       this.sugarDaddyGameHandler.startGameStateBroadcast(this.GAME_CODE);
 
       if (this.waitTimer) {
         clearTimeout(this.waitTimer);
       }
+      
       this.waitTimer = setTimeout(async () => {
         if (this.isLeader) {
           await this.transitionToInGame();
         }
       }, this.WAIT_TIME_MS);
     } catch (error) {
-      this.logger.error(`[SUGAR_DADDY_SCHEDULER] Error starting new round: ${error.message}`);
+      this.logger.error(`[SCHEDULER] Error starting round: ${(error as Error).message}`);
+      if (this.isLeader && this.isRunning) {
+        if (this.retryTimer) {
+          clearTimeout(this.retryTimer);
+        }
+        this.retryTimer = setTimeout(() => {
+          this.retryTimer = null;
+          if (this.isLeader && this.isRunning) {
+            this.startNewRound();
+          }
+        }, 5000);
+      }
     }
   }
 
   private async endRound(): Promise<void> {
     if (!this.isLeader) {
-      this.logger.debug(`[SCHEDULER_END_ROUND] Not the leader, skipping endRound`);
       return;
     }
 
     try {
       const activeRound = await this.sugarDaddyGameService.getActiveRound();
-      if (!activeRound) {
-        this.logger.warn(`[SCHEDULER_END_ROUND] No active round found`);
+      if (!activeRound || activeRound.status === GameStatus.FINISH_GAME) {
         return;
       }
-
-      if (activeRound.status === GameStatus.FINISH_GAME) {
-        this.logger.log(`[SCHEDULER_END_ROUND] Round already in FINISH_GAME state, skipping`);
-        return;
-      }
-
-      this.logger.log(
-        `[SCHEDULER_END_ROUND] Ending round: roundId=${activeRound.roundId} currentStatus=${activeRound.status}`,
-      );
 
       this.sugarDaddyGameHandler.stopCoefficientBroadcast();
 
       const roundId = activeRound.roundId;
       await this.sugarDaddyGameService.endRound();
 
-      await this.sugarDaddyGameBetService.settleUncashedBets(
-        roundId,
-        this.GAME_CODE,
-      );
+      await this.sugarDaddyGameBetService.settleUncashedBets(roundId, this.GAME_CODE);
 
       const gameState = await this.sugarDaddyGameService.getCurrentGameState();
       if (gameState) {
-        this.logger.log(
-          `[SCHEDULER_END_ROUND] Broadcasting FINISH_GAME state: roundId=${gameState.roundId} status=${gameState.status} crashCoeff=${gameState.coeffCrash || 'N/A'} betsCount=${gameState.bets.values.length}`,
-        );
         this.sugarDaddyGameHandler.broadcastGameStateChange(this.GAME_CODE, gameState);
-        this.logger.log(
-          `[SCHEDULER_END_ROUND] ✅ FINISH_GAME state broadcasted successfully`,
-        );
-      } else {
-        this.logger.error(`[SCHEDULER_END_ROUND] ❌ Failed to get game state after endRound`);
       }
     } catch (error) {
-      this.logger.error(`[SCHEDULER_END_ROUND] Error ending round: ${error.message}`, error.stack);
+      this.logger.error(`[END_ROUND] Error: ${(error as Error).message}`);
+    }
+  }
+
+  private startGradualMockBetsAddition(): void {
+    if (this.mockBetsAdditionTimer) {
+      clearInterval(this.mockBetsAdditionTimer);
+      this.mockBetsAdditionTimer = null;
+    }
+
+    const pendingMockBets = this.sugarDaddyGameService.getPendingMockBets();
+    if (pendingMockBets.length === 0) {
+      return;
+    }
+
+    const numBatches = Math.floor(Math.random() * 3) + 3;
+    let batchIndex = 0;
+
+    const addBatch = async () => {
+      if (!this.isLeader) {
+        this.clearIntervalTimer(this.mockBetsAdditionTimer);
+        return;
+      }
+
+      const activeRound = await this.sugarDaddyGameService.getActiveRound();
+      if (!activeRound || activeRound.status !== GameStatus.WAIT_GAME) {
+        this.clearIntervalTimer(this.mockBetsAdditionTimer);
+        return;
+      }
+
+      const remainingBets = this.sugarDaddyGameService.getPendingMockBets();
+      if (remainingBets.length === 0) {
+        this.clearIntervalTimer(this.mockBetsAdditionTimer);
+        return;
+      }
+
+      const batchSize = Math.min(Math.floor(Math.random() * 7) + 2, remainingBets.length);
+      const batch = remainingBets.slice(0, batchSize);
+      
+      await this.sugarDaddyGameService.addMockBetsBatch(batch);
+      this.sugarDaddyGameService.removePendingMockBets(batch);
+
+      const gameState = await this.sugarDaddyGameService.getCurrentGameState();
+      if (gameState) {
+        this.sugarDaddyGameHandler.broadcastGameStateChange(this.GAME_CODE, gameState);
+      }
+
+      batchIndex++;
+
+      if (remainingBets.length <= batchSize || batchIndex >= numBatches) {
+        this.clearIntervalTimer(this.mockBetsAdditionTimer);
+        
+        const finalRemaining = this.sugarDaddyGameService.getPendingMockBets();
+        if (finalRemaining.length > 0) {
+          await this.sugarDaddyGameService.addMockBetsBatch(finalRemaining);
+          this.sugarDaddyGameService.removePendingMockBets(finalRemaining);
+          const finalGameState = await this.sugarDaddyGameService.getCurrentGameState();
+          if (finalGameState) {
+            this.sugarDaddyGameHandler.broadcastGameStateChange(this.GAME_CODE, finalGameState);
+          }
+        }
+      }
+    };
+
+    setTimeout(() => {
+      addBatch().catch((error) => {
+        this.logger.error(`[MOCK_BETS] Error: ${(error as Error).message}`);
+      });
+    }, 500);
+
+    this.mockBetsAdditionTimer = setInterval(() => {
+      addBatch().catch((error) => {
+        this.logger.error(`[MOCK_BETS] Error: ${(error as Error).message}`);
+      });
+    }, 1500 + Math.random() * 1000);
+  }
+
+  private clearIntervalTimer(timer: NodeJS.Timeout | null): void {
+    if (timer) {
+      clearInterval(timer);
+      this.mockBetsAdditionTimer = null;
     }
   }
 
@@ -258,7 +363,7 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
       if (!activeRound || activeRound.status !== GameStatus.WAIT_GAME) {
         return;
       }
-
+      
       await this.sugarDaddyGameService.startGame();
 
       const gameState = await this.sugarDaddyGameService.getCurrentGameState();
@@ -268,7 +373,7 @@ export class SugarDaddyGameScheduler implements OnModuleInit, OnModuleDestroy {
 
       this.sugarDaddyGameHandler.startCoefficientBroadcast(this.GAME_CODE);
     } catch (error) {
-      this.logger.error(`[SUGAR_DADDY_SCHEDULER] Error transitioning to IN_GAME: ${error.message}`);
+      this.logger.error(`[TRANSITION] Error: ${(error as Error).message}`);
     }
   }
 }

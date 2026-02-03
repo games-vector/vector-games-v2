@@ -31,6 +31,17 @@ export class GameApiRoutesController {
     return this.service.getActiveGames();
   }
 
+  @Get('games/dashboard')
+  @ApiOperation({ summary: 'Get all games with extended information for dashboard' })
+  async getDashboardGames(): Promise<{ 
+    userId: string;
+    agentId: string;
+    cert: string;
+    games: Array<any> 
+  }> {
+    return this.service.getDashboardGames();
+  }
+
   @Post('games')
   @ApiOperation({ summary: 'Create a new game with automatic onboarding' })
   async createGame(@Body() body: CreateGameDto): Promise<CreateGameResponse> {
