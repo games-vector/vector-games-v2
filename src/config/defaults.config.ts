@@ -98,6 +98,125 @@ const PLATFORM_CONFIG = {
 // ============================================================================
 
 const GAMES_CONFIG = {
+  // Keno Game
+  KENO: {
+    // Game Identity
+    GAME_CODE: 'keno',
+    GAME_NAME: 'Keno',
+    PLATFORM: 'In-out',
+    GAME_TYPE: 'KENO',
+
+    // Bet Configuration (game-specific)
+    betConfig: {
+      minBetAmount: '0.01',
+      maxBetAmount: '200.00',
+      maxWinAmount: '20000.00',
+      defaultBetAmount: '0.06',
+      betPresets: ['0.5', '1', '2', '7'],
+      decimalPlaces: '2',
+      currency: 'USD',
+    },
+
+    // Game Payloads Configuration (for wallet API)
+    GAME_PAYLOADS: {
+      GAME_TYPE: 'KENO',
+      PLATFORM: 'In-out',
+      SETTLE_TYPE: 'platformTxId',
+    },
+
+    // Game Constants
+    GAME: {
+      GRID_SIZE: 40, // Numbers 1-40
+      MIN_SELECTION: 1,
+      MAX_SELECTION: 10,
+      NUMBERS_DRAWN: 10,
+      DECIMAL_PLACES: 2,
+      BET_HISTORY_LIMIT: 30,
+      BET_HISTORY_DAYS: 7,
+    },
+
+    // Payout Tables per Risk Level and Selection Count
+    // Format: payoutTables[RISK][selectionCount][hits] = multiplier
+    payoutTables: {
+      LOW: {
+        1: { 0: 0, 1: 2.85 },
+        2: { 0: 0, 1: 1.35, 2: 4.1 },
+        3: { 0: 0, 1: 1.3, 2: 2.54, 3: 5 },
+        4: { 0: 0, 1: 1.1, 2: 1.72, 3: 5, 4: 10 },
+        5: { 0: 0, 1: 0.25, 2: 1.36, 3: 5, 4: 10, 5: 15 },
+        6: { 0: 0, 1: 0, 2: 1.5, 3: 2, 4: 5, 5: 13, 6: 20 },
+        7: { 0: 0, 1: 0, 2: 0.5, 3: 2, 4: 5, 5: 10, 6: 20, 7: 50 },
+        8: { 0: 0, 1: 0, 2: 0, 3: 2, 4: 4, 5: 8, 6: 15, 7: 50, 8: 100 },
+        9: { 0: 0, 1: 0, 2: 0, 3: 1, 4: 3, 5: 5, 6: 10, 7: 30, 8: 100, 9: 200 },
+        10: { 0: 0, 1: 0.1, 2: 0.25, 3: 1.25, 4: 2, 5: 10, 6: 22, 7: 50, 8: 100, 9: 250, 10: 300 },
+      },
+      MEDIUM: {
+        1: { 0: 0, 1: 3.8 },
+        2: { 0: 0, 1: 1.8, 2: 5 },
+        3: { 0: 0, 1: 1.2, 2: 2.42, 3: 8 },
+        4: { 0: 0, 1: 0.8, 2: 2, 3: 6, 4: 20 },
+        5: { 0: 0, 1: 0.5, 2: 1.4, 3: 3.45, 4: 10, 5: 35 },
+        6: { 0: 0, 1: 0.25, 2: 1.4, 3: 2.1, 4: 5, 5: 25, 6: 50 },
+        7: { 0: 0, 1: 0, 2: 1, 3: 2.5, 4: 6, 5: 15, 6: 40, 7: 100 },
+        8: { 0: 0, 1: 0, 2: 0.5, 3: 2, 4: 5, 5: 12, 6: 30, 7: 100, 8: 250 },
+        9: { 0: 0, 1: 0, 2: 0, 3: 1.5, 4: 4, 5: 8, 6: 20, 7: 60, 8: 200, 9: 500 },
+        10: { 0: 0, 1: 0, 2: 0.25, 3: 1.1, 4: 2.45, 5: 10, 6: 25, 7: 50, 8: 250, 9: 500, 10: 1000 },
+      },
+      HIGH: {
+        1: { 0: 0, 1: 5.5 },
+        2: { 0: 0, 1: 2, 2: 8 },
+        3: { 0: 0, 1: 1, 2: 2.62, 3: 15 },
+        4: { 0: 0, 1: 0, 2: 2.5, 3: 8, 4: 40 },
+        5: { 0: 0, 1: 0, 2: 2, 3: 3.3, 4: 15, 5: 50 },
+        6: { 0: 0, 1: 0, 2: 1.1, 3: 2.25, 4: 10, 5: 50, 6: 100 },
+        7: { 0: 0, 1: 0, 2: 0.5, 3: 2.5, 4: 8, 5: 25, 6: 80, 7: 200 },
+        8: { 0: 0, 1: 0, 2: 0, 3: 2, 4: 6, 5: 18, 6: 50, 7: 200, 8: 500 },
+        9: { 0: 0, 1: 0, 2: 0, 3: 1, 4: 4, 5: 10, 6: 35, 7: 100, 8: 400, 9: 1000 },
+        10: { 0: 0, 1: 0, 2: 0, 3: 0.98, 4: 2.7, 5: 10, 6: 50, 7: 100, 8: 500, 9: 1000, 10: 10000 },
+      },
+    },
+
+    // Last Win Configuration (game-specific)
+    LAST_WIN: {
+      DEFAULT_USERNAME: 'Lucky Player',
+      DEFAULT_WIN_AMOUNT: '50.00',
+      DEFAULT_CURRENCY: 'USD',
+      FALLBACK_USERNAME: 'UNKNOWN',
+      FALLBACK_WIN_AMOUNT: '0',
+      FALLBACK_CURRENCY: 'USD',
+    },
+
+    // Fairness/Seeds Configuration (provably fair)
+    FAIRNESS: {
+      LEGACY_CLIENT_SEED: 'd1acc8777038c16a',
+      CLIENT_SEED_LENGTH: 16,
+    },
+
+    // Bet Defaults (game-specific)
+    BET: {
+      DEFAULT_LIMIT: 50,
+      DEFAULT_STATUS: 'placed',
+      DEFAULT_PLATFORM: 'SPADE',
+      DEFAULT_GAME_TYPE: 'LIVE',
+      DEFAULT_BET_RANGES: {
+        USD: ['0.01', '200.00'],
+      },
+    },
+
+    // Frontend/Host Configuration (game-specific)
+    FRONTEND: {
+      DEFAULT_HOST: 'gscr.keno.live',
+    },
+
+    // Game-specific Error Messages
+    ERROR_MESSAGES: {
+      INVALID_SELECTION_COUNT: 'invalid_selection_count',
+      INVALID_NUMBER_RANGE: 'invalid_number_range',
+      DUPLICATE_NUMBERS: 'duplicate_numbers',
+      INVALID_RISK_LEVEL: 'invalid_risk_level',
+    },
+  },
+
   // Sugar Daddy Game
   SUGAR_DADDY: {
     // Game Identity
@@ -345,6 +464,7 @@ export const DEFAULTS = {
   ERROR_MESSAGES: PLATFORM_CONFIG.ERROR_MESSAGES,
 
   // Game-specific aliases (for backward compatibility)
+  KENO: GAMES_CONFIG.KENO,
   SUGAR_DADDY: GAMES_CONFIG.SUGAR_DADDY,
   DIVER: GAMES_CONFIG.DIVER,
   CHICKEN_ROAD: GAMES_CONFIG.CHICKEN_ROAD,
@@ -364,6 +484,7 @@ export const DEFAULTS = {
 
 export type PlatformConfig = typeof PLATFORM_CONFIG;
 export type GamesConfig = typeof GAMES_CONFIG;
+export type KenoConfig = typeof GAMES_CONFIG.KENO;
 export type SugarDaddyConfig = typeof GAMES_CONFIG.SUGAR_DADDY;
 export type DiverConfig = typeof GAMES_CONFIG.DIVER;
 export type ChickenRoadConfig = typeof GAMES_CONFIG.CHICKEN_ROAD;
