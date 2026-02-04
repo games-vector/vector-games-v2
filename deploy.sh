@@ -110,6 +110,15 @@ echo -e "${GREEN}📦 Image will be tagged as: ${IMAGE_TAG}${NC}"
 echo -e "${YELLOW}🛑 Stopping existing containers...${NC}"
 docker compose -f docker-compose.prod.yml --env-file .env.production down || true
 
+# Load GITHUB_TOKEN from .env.production if not already set
+if [ -z "$GITHUB_TOKEN" ] && [ -f .env.production ]; then
+    GITHUB_TOKEN=$(grep "^GITHUB_TOKEN=" .env.production 2>/dev/null | cut -d '=' -f2- | sed 's/^["'\'']//;s/["'\'']$//' | xargs)
+    if [ -n "$GITHUB_TOKEN" ]; then
+        export GITHUB_TOKEN
+        echo -e "${GREEN}✅ Loaded GITHUB_TOKEN from .env.production${NC}"
+    fi
+fi
+
 # Build and tag Docker image
 echo -e "${YELLOW}🔨 Building Docker image with tag ${IMAGE_TAG}...${NC}"
 docker build \
