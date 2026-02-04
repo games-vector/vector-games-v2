@@ -1,2 +1,0 @@
-/Users/shubhamjangid/.gemini/antigravity/brain/1c9e4000-29b3-4ea5-9e3f-f1fe565d713d/final_clone_test_1769871737337.webp
-/Users/shubhamjangid/.gemini/antigravity/brain/1c9e4000-29b3-4ea5-9e3f-f1fe565d713d/clone_summary.md.resolved
