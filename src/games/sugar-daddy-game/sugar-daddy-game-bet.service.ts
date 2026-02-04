@@ -1087,14 +1087,9 @@ export class SugarDaddyGameBetService {
       // Generate fairness data for the bet - pass roundId to get from coefficient history if needed
       const fairnessData = await this.generateFairnessDataForBet(userId, roundIdNum);
 
-      // Debug log: Verify fairnessData is generated
       if (!fairnessData) {
         this.logger.warn(
-          `[FAIRNESS_DATA_DEBUG] cashOut: fairnessData is null/undefined for userId=${userId} playerGameId=${playerGameId} roundId=${roundIdNum}`,
-        );
-      } else {
-        this.logger.debug(
-          `[FAIRNESS_DATA_DEBUG] cashOut: fairnessData generated for userId=${userId} hasServerSeed=${!!fairnessData.serverSeed} hasClientSeed=${!!fairnessData.clientSeed} roundId=${roundIdNum}`,
+          `cashOut: fairnessData is null/undefined for userId=${userId} playerGameId=${playerGameId} roundId=${roundIdNum}`,
         );
       }
 
@@ -1167,10 +1162,6 @@ export class SugarDaddyGameBetService {
         coeffHistoryMap.set(coeff.gameId, coeff);
       });
       
-      // Debug log: Log coefficient history retrieval
-      this.logger.debug(
-        `[CLIENTSSEEDS_DEBUG] getUserBetsHistory: Retrieved ${coefficientsHistory.length} coefficient history entries, sample gameIds: ${Array.from(coeffHistoryMap.keys()).slice(0, 5).join(', ')}`,
-      );
       
       const betHistory = settledBets.map((bet) => {
         const gameMetadata = bet.gameMetadata || {};
@@ -1180,16 +1171,6 @@ export class SugarDaddyGameBetService {
         
         const coeffHistory = coeffHistoryMap.get(gameId);
         
-        // Debug log: Log gameId lookup
-        if (!coeffHistory) {
-          this.logger.debug(
-            `[CLIENTSSEEDS_DEBUG] getUserBetsHistory: Bet ${bet.id} gameId=${gameId} NOT FOUND in coeffHistoryMap. Available gameIds: ${Array.from(coeffHistoryMap.keys()).slice(0, 10).join(', ')}`,
-          );
-        } else {
-          this.logger.debug(
-            `[CLIENTSSEEDS_DEBUG] getUserBetsHistory: Bet ${bet.id} gameId=${gameId} FOUND in coeffHistory, clientsSeedsCount=${coeffHistory.clientsSeeds?.length || 0}`,
-          );
-        }
         
         const serverSeed = coeffHistory?.serverSeed || fairnessData.serverSeed || '';
         
@@ -1216,18 +1197,11 @@ export class SugarDaddyGameBetService {
             const gameInfo = typeof bet.gameInfo === 'string' ? JSON.parse(bet.gameInfo) : bet.gameInfo;
             if (gameInfo.clientsSeeds && Array.isArray(gameInfo.clientsSeeds)) {
               fairness.clientsSeeds = gameInfo.clientsSeeds;
-              this.logger.debug(
-                `[CLIENTSSEEDS_DEBUG] getUserBetsHistory: Bet ${bet.id} found clientsSeeds in gameInfo, count=${gameInfo.clientsSeeds.length}`,
-              );
             }
           } catch (e) {
           }
         }
         
-        // Debug log: Log final clientsSeeds in fairness object
-        this.logger.debug(
-          `[CLIENTSSEEDS_DEBUG] getUserBetsHistory: Bet ${bet.id} final fairness.clientsSeeds count=${fairness.clientsSeeds.length}`,
-        );
         
         // If all fairness values are empty, return empty object
         if (

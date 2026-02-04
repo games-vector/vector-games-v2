@@ -29,16 +29,12 @@ export class GameApiRoutesService {
     this.logger.log(
       `[authenticateGame] Request received - operator: ${dto.operator}, currency: ${dto.currency}, game_mode: ${dto.game_mode}`,
     );
-    // TODO: Validate operator (agent_id) against database
-    // For now, just accepting the value
+    // Operator (agent_id) validation is handled by JWT token verification
 
     // Verify the incoming JWT token and extract userId and agentId
     let decoded: any;
     try {
       decoded = await this.jwtTokenService.verifyToken(dto.auth_token);
-      this.logger.log(
-        `[authenticateGame] Token verified successfully - decoded: ${JSON.stringify(decoded)}`,
-      );
     } catch (error) {
       this.logger.warn(
         `[TOKEN_VERIFICATION_FAILED] operator=${dto.operator} reason=${error.message}`,
