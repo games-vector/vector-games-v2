@@ -52,6 +52,8 @@ services:
       retries: 5
 
   app:
+    # Use image if IMAGE_TAG is set, otherwise build
+    image: ${IMAGE_TAG:-vector-games-v2:latest}
     build:
       context: ..  # Build from parent directory to access game-platform-core
       dockerfile: vector-games-v2/Dockerfile
