@@ -8,6 +8,9 @@ export enum GameAction {
   GET_GAME_SEEDS = 'get-game-seeds',
   SET_USER_SEED = 'set-user-seed',
   GET_MY_BETS_HISTORY = 'gameService-get-my-bets-history',
+  VERIFY_RESULT = 'verify-result',
+  AUTO_PICK = 'auto-pick',
+  GET_PAYOUT_TABLE = 'get-payout-table',
 }
 
 export class GameActionDto {

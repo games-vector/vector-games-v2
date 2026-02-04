@@ -10,6 +10,7 @@ import { KenoGameHandler } from './keno-game.handler';
 import { KenoGameService } from './keno-game.service';
 import { RngModule } from './modules/rng/rng.module';
 import { PayoutModule } from './modules/payout/payout.module';
+import { KenoLastWinModule } from './modules/last-win/last-win.module';
 import { GameConfigModule } from '../../modules/game-config/game-config.module';
 import { RedisModule } from '../../modules/redis/redis.module';
 import { WalletConfigModule } from '../../modules/wallet-config/wallet-config.module';
@@ -47,6 +48,7 @@ const SETTLE_TYPE = 'platformTxId';
     GameModule,
     RngModule,
     PayoutModule,
+    KenoLastWinModule,
   ],
   providers: [KenoGameHandler, KenoGameService],
   exports: [KenoGameHandler, KenoGameService],

@@ -3,6 +3,7 @@ import { Server, Socket } from 'socket.io';
 import { WalletService, UserService, AgentsService } from '@games-vector/game-core';
 import { GameAction } from './DTO/game-action.dto';
 import { KenoGameService } from './keno-game.service';
+import { KenoLastWinBroadcasterService } from './modules/last-win/last-win-broadcaster.service';
 import { GameService } from '../../modules/games/game.service';
 import { GameRegistryService } from '../game-registry.service';
 import { DEFAULTS } from '../../config/defaults.config';
@@ -63,6 +64,7 @@ export class KenoGameHandler implements IGameHandler {
     private readonly gameService: GameService,
     private readonly agentsService: AgentsService,
     private readonly gameRegistry: GameRegistryService,
+    private readonly lastWinBroadcaster: KenoLastWinBroadcasterService,
   ) {}
 
   onGatewayInit(server: Server): void {
@@ -73,6 +75,9 @@ export class KenoGameHandler implements IGameHandler {
     this.logger.log(
       `[KENO_HANDLER] Handler supports ${gameCodes.length} game code(s): ${gameCodes.join(', ')}`,
     );
+
+    // Start last-win broadcasting for all supported game codes
+    this.lastWinBroadcaster.startBroadcasting(server, gameCodes.length > 0 ? gameCodes : [this.gameCode]);
   }
 
   getServer(): Server | null {
@@ -338,6 +343,58 @@ export class KenoGameHandler implements IGameHandler {
             this.logger.error(`Get bet history failed: ${e}`);
             ack(formatErrorResponse('get_bet_history_failed'));
           });
+        return;
+      }
+
+      // Verify provably fair result
+      if (rawAction === GameAction.VERIFY_RESULT || rawAction === 'verify-result') {
+        const { serverSeed, clientSeed, nonce, kenoNumbers } = data?.payload || {};
+        if (!serverSeed || !clientSeed || nonce === undefined || !kenoNumbers) {
+          return ack(formatErrorResponse('missing_verification_params'));
+        }
+        this.kenoGameService
+          .verifyResult(serverSeed, clientSeed, Number(nonce), kenoNumbers)
+          .then((result) => ack(result))
+          .catch((e) => {
+            this.logger.error(`Verify result failed: ${e}`);
+            ack(formatErrorResponse('verify_result_failed'));
+          });
+        return;
+      }
+
+      // Auto-pick random numbers
+      if (rawAction === GameAction.AUTO_PICK || rawAction === 'auto-pick') {
+        const count = data?.payload?.count || 5; // Default to 5 numbers
+        try {
+          const numbers = this.kenoGameService.generateAutoPick(Number(count));
+          ack({ success: true, numbers });
+        } catch (e) {
+          this.logger.error(`Auto-pick failed: ${e}`);
+          ack(formatErrorResponse('auto_pick_failed'));
+        }
+        return;
+      }
+
+      // Get payout table for specific selection count
+      if (rawAction === GameAction.GET_PAYOUT_TABLE || rawAction === 'get-payout-table') {
+        const { risk, selectionCount } = data?.payload || {};
+        if (!risk || !selectionCount) {
+          return ack(formatErrorResponse('missing_payout_table_params'));
+        }
+        try {
+          const payoutTable = this.kenoGameService.getPayoutTableForSelection(
+            risk,
+            Number(selectionCount),
+          );
+          if (payoutTable) {
+            ack({ success: true, payoutTable, risk, selectionCount });
+          } else {
+            ack(formatErrorResponse('payout_table_not_found'));
+          }
+        } catch (e) {
+          this.logger.error(`Get payout table failed: ${e}`);
+          ack(formatErrorResponse('get_payout_table_failed'));
+        }
         return;
       }
 

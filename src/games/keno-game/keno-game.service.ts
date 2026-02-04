@@ -648,4 +648,96 @@ export class KenoGameService {
       return undefined;
     }
   }
+
+  /**
+   * Verify provably fair result
+   * Allows players to verify that drawn numbers were generated fairly
+   */
+  async verifyResult(
+    serverSeed: string,
+    clientSeed: string,
+    nonce: number,
+    kenoNumbers: number[],
+  ): Promise<{
+    verified: boolean;
+    expectedNumbers: number[];
+    providedNumbers: number[];
+    serverSeedHash: string;
+  }> {
+    const expectedNumbers = this.rngService.generateKenoNumbers(
+      serverSeed,
+      clientSeed,
+      nonce,
+    );
+
+    const verified = this.rngService.verifyNumbers(
+      serverSeed,
+      clientSeed,
+      nonce,
+      kenoNumbers,
+    );
+
+    const serverSeedHash = this.rngService.hashServerSeed(serverSeed);
+
+    this.logger.log(
+      `[VERIFY_RESULT] verified=${verified} expected=[${expectedNumbers.join(',')}] provided=[${kenoNumbers.join(',')}]`,
+    );
+
+    return {
+      verified,
+      expectedNumbers,
+      providedNumbers: kenoNumbers,
+      serverSeedHash,
+    };
+  }
+
+  /**
+   * Generate random number selections (auto-pick/shuffle)
+   * @param count - Number of selections to generate (1-10)
+   * @returns Array of random unique numbers from 1-40
+   */
+  generateAutoPick(count: number): number[] {
+    // Validate count
+    const validCount = Math.max(
+      GAME_CONSTANTS.MIN_SELECTION,
+      Math.min(GAME_CONSTANTS.MAX_SELECTION, count),
+    );
+
+    const numbers: number[] = [];
+    const available = Array.from(
+      { length: GAME_CONSTANTS.GRID_SIZE },
+      (_, i) => i + 1,
+    );
+
+    // Fisher-Yates shuffle and pick first 'count' numbers
+    for (let i = available.length - 1; i > 0 && numbers.length < validCount; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [available[i], available[j]] = [available[j], available[i]];
+      numbers.push(available[i]);
+    }
+
+    // If we need more numbers (shouldn't happen, but safety check)
+    while (numbers.length < validCount) {
+      numbers.push(available[numbers.length]);
+    }
+
+    // Sort for better UX
+    numbers.sort((a, b) => a - b);
+
+    this.logger.debug(
+      `[AUTO_PICK] Generated ${validCount} numbers: [${numbers.join(',')}]`,
+    );
+
+    return numbers;
+  }
+
+  /**
+   * Get payout table for specific risk and selection count
+   */
+  getPayoutTableForSelection(
+    risk: Risk,
+    selectionCount: number,
+  ): { [hits: number]: number } | null {
+    return this.payoutService.getPayoutTable(risk, selectionCount);
+  }
 }

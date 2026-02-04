@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsEnum,
   IsNotEmpty,
@@ -15,12 +16,30 @@ import {
 
 /**
  * Risk levels for Keno game
- * Maps to UI labels: LOW = EASY, MEDIUM = MEDIUM, HIGH = HIGH
+ * Maps to UI labels: EASY = LOW, MEDIUM = MEDIUM, HIGH = HIGH
+ *
+ * Note: Frontend may send "EASY" which maps to "LOW" internally
+ * The Transform decorator handles this mapping automatically
  */
 export enum Risk {
   LOW = 'LOW',
   MEDIUM = 'MEDIUM',
   HIGH = 'HIGH',
+}
+
+/**
+ * Maps frontend difficulty names to internal Risk enum values
+ * EASY -> LOW (lower risk, lower rewards)
+ * MEDIUM -> MEDIUM (balanced)
+ * HIGH -> HIGH (higher risk, higher rewards)
+ */
+export function mapDifficultyToRisk(value: string): Risk {
+  const normalized = value?.toUpperCase?.() || '';
+  if (normalized === 'EASY') return Risk.LOW;
+  if (normalized === 'LOW') return Risk.LOW;
+  if (normalized === 'MEDIUM') return Risk.MEDIUM;
+  if (normalized === 'HIGH') return Risk.HIGH;
+  return value as Risk; // Let validation fail if invalid
 }
 
 export class BetPayloadDto {
@@ -35,8 +54,9 @@ export class BetPayloadDto {
   @ApiProperty({
     enum: Risk,
     example: Risk.LOW,
-    description: 'Selected risk level impacting odds/payout (LOW = EASY UI)',
+    description: 'Selected risk level impacting odds/payout. Accepts EASY/LOW, MEDIUM, HIGH. EASY maps to LOW.',
   })
+  @Transform(({ value }) => mapDifficultyToRisk(value))
   @IsEnum(Risk)
   @IsNotEmpty()
   risk: Risk;
