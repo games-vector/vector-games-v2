@@ -3,8 +3,9 @@ import {
   Controller,
   Get,
   Post,
+  Query,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { AuthLoginDto, AuthLoginResponse } from './DTO/auth-login.dto';
 import { OnlineCounterResponse } from './DTO/online-counter.dto';
 import { CreateGameDto, CreateGameResponse } from './DTO/create-game.dto';
@@ -14,6 +15,21 @@ import { GameApiRoutesService } from './game-api-routes.service';
 @Controller('api')
 export class GameApiRoutesController {
   constructor(private readonly service: GameApiRoutesService) {}
+
+  @Get('dev-game-token')
+  @ApiOperation({ summary: 'Get a dev JWT token (development only)' })
+  @ApiQuery({ name: 'userId', required: false, example: 'testuser001' })
+  @ApiQuery({ name: 'operatorId', required: false, example: 'dev-operator' })
+  @ApiQuery({ name: 'currency', required: false, example: 'INR' })
+  @ApiQuery({ name: 'game_mode', required: false, example: 'coinflip' })
+  async getDevToken(
+    @Query('userId') userId = 'testuser001',
+    @Query('operatorId') operatorId = 'dev-operator',
+    @Query('currency') currency = 'INR',
+    @Query('game_mode') gameMode = 'coinflip',
+  ): Promise<{ token: string }> {
+    return this.service.generateDevToken(userId, operatorId, currency, gameMode);
+  }
 
   @Post('auth')
   async authenticate(@Body() body: AuthLoginDto): Promise<AuthLoginResponse> {

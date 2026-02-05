@@ -25,6 +25,56 @@ export class GameApiRoutesService {
     private readonly dataSource: DataSource,
   ) {}
 
+  /**
+   * Generate a dev token for testing (development only)
+   */
+  async generateDevToken(
+    userId: string,
+    operatorId: string,
+    currency: string,
+    gameMode: string,
+  ): Promise<{ token: string }> {
+    // Only allow in development
+    if (process.env.APP_ENV !== 'development' && process.env.NODE_ENV !== 'development') {
+      throw new BadRequestException('Dev tokens are only available in development mode');
+    }
+
+    this.logger.log(
+      `[generateDevToken] Generating dev token for user=${userId} operator=${operatorId} currency=${currency} gameMode=${gameMode}`,
+    );
+
+    // Ensure user exists in database
+    try {
+      const existingUser = await this.dataSource.query(
+        'SELECT * FROM user WHERE id = ? AND agentId = ?',
+        [userId, operatorId],
+      );
+
+      if (!existingUser || existingUser.length === 0) {
+        // Create user
+        await this.dataSource.query(
+          `INSERT INTO user (id, agentId, username, balance, currency, createdAt, updatedAt)
+           VALUES (?, ?, ?, 1000000, ?, NOW(), NOW())
+           ON DUPLICATE KEY UPDATE updatedAt = NOW()`,
+          [userId, operatorId, userId, currency],
+        );
+        this.logger.log(`[generateDevToken] Created user ${userId} for agent ${operatorId}`);
+      }
+    } catch (error: any) {
+      this.logger.warn(`[generateDevToken] Error checking/creating user: ${error.message}`);
+    }
+
+    const token = await this.jwtTokenService.signGenericToken({
+      sub: userId,
+      agentId: operatorId,
+      currency: currency,
+      game_mode: gameMode,
+      timestamp: Date.now(),
+    });
+
+    return { token };
+  }
+
   async authenticateGame(dto: AuthLoginDto): Promise<AuthLoginResponse> {
     this.logger.log(
       `[authenticateGame] Request received - operator: ${dto.operator}, currency: ${dto.currency}, game_mode: ${dto.game_mode}`,
@@ -77,12 +127,14 @@ export class GameApiRoutesService {
       success: true,
       result: newToken,
       data: newToken,
+      jwt: newToken, // React frontend expects this field
       gameConfig: null,
       bonuses: [],
       isLobbyEnabled: false,
       isPromoCodeEnabled: false,
       isSoundEnabled: false,
       isMusicEnabled: false,
+      status: '0000',
     };
   }
 

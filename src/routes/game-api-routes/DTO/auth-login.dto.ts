@@ -39,10 +39,12 @@ export interface AuthLoginResponse {
   success: boolean;
   result: string;
   data: string;
+  jwt: string; // React frontend expects this field
   gameConfig: any;
   bonuses: any[];
   isLobbyEnabled: boolean;
   isPromoCodeEnabled: boolean;
   isSoundEnabled: boolean;
   isMusicEnabled: boolean;
+  status?: string;
 }

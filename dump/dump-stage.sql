@@ -193,8 +193,36 @@ CREATE TABLE `games` (
 
 LOCK TABLES `games` WRITE;
 /*!40000 ALTER TABLE `games` DISABLE KEYS */;
-INSERT INTO `games` VALUES ('4937582c-cf04-43f2-ad26-20682fd625a8','chicken-road-two','chicken-road-2','In-out','CRASH','platformTxId',1,'2026-01-21 14:52:50.162667','2026-01-21 14:52:50.162667',NULL,NULL),('6bb7f5e1-dc2c-41d5-9437-166826dd1ab9','diver','diver','In-out','CRASH','platformTxId',1,'2026-01-30 13:03:36.048847','2026-01-30 13:06:05.904816',NULL,NULL),('82f7fea8-292e-4a44-a348-f5be62fb4793','sugar-daddy','sugar-daddy','In-out','CRASH','platformTxId',1,'2026-01-21 14:52:50.114327','2026-01-29 10:07:53.208433',NULL,NULL),('a4361c9e-eaf6-44f0-b053-f8e63eaf7fb4','chicken-road-vegas','chicken-road-2','In-out','CRASH','platformTxId',1,'2026-01-21 14:52:50.191238','2026-01-21 14:52:50.191238',NULL,NULL);
+INSERT INTO `games` VALUES ('4937582c-cf04-43f2-ad26-20682fd625a8','chicken-road-two','chicken-road-2','In-out','CRASH','platformTxId',1,'2026-01-21 14:52:50.162667','2026-01-21 14:52:50.162667',NULL,NULL),('6bb7f5e1-dc2c-41d5-9437-166826dd1ab9','diver','diver','In-out','CRASH','platformTxId',1,'2026-01-30 13:03:36.048847','2026-01-30 13:06:05.904816',NULL,NULL),('82f7fea8-292e-4a44-a348-f5be62fb4793','sugar-daddy','sugar-daddy','In-out','CRASH','platformTxId',1,'2026-01-21 14:52:50.114327','2026-01-29 10:07:53.208433',NULL,NULL),('a4361c9e-eaf6-44f0-b053-f8e63eaf7fb4','chicken-road-vegas','chicken-road-2','In-out','CRASH','platformTxId',1,'2026-01-21 14:52:50.191238','2026-01-21 14:52:50.191238',NULL,NULL),('b5472d0f-1234-4567-8910-abcdef123456','coinflip','CoinFlip','In-out','CRASH','platformTxId',1,'2026-02-04 00:00:00.000000','2026-02-04 00:00:00.000000',NULL,NULL);
 /*!40000 ALTER TABLE `games` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `game_config_coinflip`
+--
+
+DROP TABLE IF EXISTS `game_config_coinflip`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `game_config_coinflip` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `key` varchar(255) NOT NULL,
+  `value` text,
+  `updatedAt` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `key` (`key`),
+  KEY `idx_key` (`key`)
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `game_config_coinflip`
+--
+
+LOCK TABLES `game_config_coinflip` WRITE;
+/*!40000 ALTER TABLE `game_config_coinflip` DISABLE KEYS */;
+INSERT INTO `game_config_coinflip` VALUES (1,'betConfig','{"minBetAmount":"0.01","maxBetAmount":"200.00","maxWinAmount":"20000.00","defaultBetAmount":"0.30","betPresets":["0.5","1","2","7"],"decimalPlaces":2,"currency":"INR"}','2026-02-04 00:00:00'),(2,'game.payloads','{"gameCode":"coinflip","gameName":"CoinFlip","platform":"In-out","gameType":"CRASH","settleType":"platformTxId"}','2026-02-04 00:00:00'),(3,'multipliers','["1.94","3.88","7.76","15.52","31.04","62.08","124.16","248.32","496.64","993.28","1986.56","3973.12","7946.24","15892.48","31784.96","63569.92","127139.84","254279.68","508559.36","1017118.72"]','2026-02-04 00:00:00'),(4,'gameConfig','{"maxRounds":20,"baseMultiplier":1.94}','2026-02-04 00:00:00');
+/*!40000 ALTER TABLE `game_config_coinflip` ENABLE KEYS */;
 UNLOCK TABLES;
 
 --
