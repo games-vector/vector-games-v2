@@ -9,6 +9,7 @@ import { BetPayloadDto, CoinChoice, PlayMode } from './DTO/bet-payload.dto';
 import { StepPayloadDto } from './DTO/step-payload.dto';
 import { CoinFlipFairnessService } from './modules/fairness/fairness.service';
 import { RedisService } from '../../modules/redis/redis.service';
+import { GameConfigService } from '../../modules/game-config/game-config.service';
 import { CoinFlipGameSession, CoinFlipGameStateResponse } from './interfaces/game-session.interface';
 import { COINFLIP_CONSTANTS, MULTIPLIERS } from './constants/coinflip.constants';
 import { DEFAULTS } from '../../config/defaults.config';
@@ -28,6 +29,7 @@ export class CoinFlipGameService {
     private readonly walletService: WalletService,
     private readonly betService: BetService,
     private readonly fairnessService: CoinFlipFairnessService,
+    private readonly gameConfigService: GameConfigService,
   ) {}
 
   /**
@@ -48,33 +50,93 @@ export class CoinFlipGameService {
   }
 
   /**
+   * Safely get config from DB, returning empty JSON string on error
+   */
+  private async safeGetConfig(gameCode: string, key: string): Promise<string> {
+    try {
+      const raw = await this.gameConfigService.getConfig(gameCode, key);
+      return typeof raw === 'string' ? raw : JSON.stringify(raw);
+    } catch (e) {
+      this.logger.warn(`Config key ${key} not available: ${e}`);
+      return '{}';
+    }
+  }
+
+  /**
+   * Safely parse JSON, returning undefined on error
+   */
+  private tryParseJson(value: string): any {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
    * Get game config payload for connection (betConfig, lastWin).
-   * Aligns with chicken-road: allows DB/config override in future via GameConfigModule.
+   * Fetches from DB via GameConfigService, falls back to defaults if not found.
    */
   async getGameConfigPayload(gameCode: string): Promise<{
     betConfig: Record<string, any>;
     coefficients: Record<string, any>;
     lastWin: { username: string; winAmount: string; currency: string };
   }> {
-    const defaultBetConfig = DEFAULTS.GAMES.COINFLIP.BET_CONFIG;
-    const defaultLastWin = DEFAULTS.GAMES.COINFLIP.LAST_WIN;
-    return {
-      betConfig: {
-        minBetAmount: defaultBetConfig.minBetAmount,
-        maxBetAmount: defaultBetConfig.maxBetAmount,
-        maxWinAmount: defaultBetConfig.maxWinAmount,
-        defaultBetAmount: defaultBetConfig.defaultBetAmount,
-        betPresets: defaultBetConfig.betPresets,
-        decimalPlaces: defaultBetConfig.decimalPlaces,
-        currency: defaultBetConfig.currency,
-      },
-      coefficients: {},
-      lastWin: {
-        username: defaultLastWin.DEFAULT_USERNAME,
-        winAmount: defaultLastWin.DEFAULT_WIN_AMOUNT,
-        currency: defaultLastWin.DEFAULT_CURRENCY,
-      },
-    };
+    try {
+      const betConfigRaw = await this.safeGetConfig(gameCode, 'betConfig');
+      const coeffRaw = await this.safeGetConfig(gameCode, 'coefficients');
+      const betConfig = this.tryParseJson(betConfigRaw) || {};
+      const coefficients = this.tryParseJson(coeffRaw) || {};
+
+      const defaultBetConfig = DEFAULTS.GAMES.COINFLIP.BET_CONFIG;
+      const defaultLastWin = DEFAULTS.GAMES.COINFLIP.LAST_WIN;
+
+      // Log if DB config was found
+      if (Object.keys(betConfig).length > 0) {
+        this.logger.debug(
+          `[${gameCode}] Loaded betConfig from DB with keys: ${Object.keys(betConfig).join(', ')}`,
+        );
+      }
+
+      return {
+        betConfig: {
+          minBetAmount: betConfig.minBetAmount ?? defaultBetConfig.minBetAmount,
+          maxBetAmount: betConfig.maxBetAmount ?? defaultBetConfig.maxBetAmount,
+          maxWinAmount: betConfig.maxWinAmount ?? defaultBetConfig.maxWinAmount,
+          defaultBetAmount: betConfig.defaultBetAmount ?? defaultBetConfig.defaultBetAmount,
+          betPresets: betConfig.betPresets ?? defaultBetConfig.betPresets,
+          decimalPlaces: betConfig.decimalPlaces ?? defaultBetConfig.decimalPlaces,
+          currency: betConfig.currency ?? defaultBetConfig.currency,
+        },
+        coefficients,
+        lastWin: {
+          username: defaultLastWin.DEFAULT_USERNAME,
+          winAmount: defaultLastWin.DEFAULT_WIN_AMOUNT,
+          currency: defaultLastWin.DEFAULT_CURRENCY,
+        },
+      };
+    } catch (e) {
+      this.logger.error(`Failed building game config payload: ${e}`);
+      const defaultBetConfig = DEFAULTS.GAMES.COINFLIP.BET_CONFIG;
+      const defaultLastWin = DEFAULTS.GAMES.COINFLIP.LAST_WIN;
+      return {
+        betConfig: {
+          minBetAmount: defaultBetConfig.minBetAmount,
+          maxBetAmount: defaultBetConfig.maxBetAmount,
+          maxWinAmount: defaultBetConfig.maxWinAmount,
+          defaultBetAmount: defaultBetConfig.defaultBetAmount,
+          betPresets: defaultBetConfig.betPresets,
+          decimalPlaces: defaultBetConfig.decimalPlaces,
+          currency: defaultBetConfig.currency,
+        },
+        coefficients: {},
+        lastWin: {
+          username: defaultLastWin.DEFAULT_USERNAME,
+          winAmount: defaultLastWin.DEFAULT_WIN_AMOUNT,
+          currency: defaultLastWin.DEFAULT_CURRENCY,
+        },
+      };
+    }
   }
 
   /**
