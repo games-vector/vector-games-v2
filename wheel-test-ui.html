@@ -1,0 +1,1256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wheel Backend Test UI</title>
+    <style>
+        * { box-sizing: border-box; font-family: monospace; }
+        body { margin: 0; padding: 20px; background: #1a1a2e; color: #eee; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1, h2, h3 { margin: 10px 0; }
+        .section { background: #16213e; padding: 15px; margin: 10px 0; border-radius: 5px; border: 1px solid #0f3460; }
+        .section-title { color: #e94560; font-weight: bold; margin-bottom: 10px; }
+        .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 10px 0; }
+        button { padding: 10px 20px; background: #e94560; border: none; color: white; cursor: pointer; border-radius: 5px; font-weight: bold; }
+        button:hover { background: #ff6b8a; }
+        button:disabled { background: #666; cursor: not-allowed; }
+        button.secondary { background: #0f3460; }
+        button.success { background: #4ecca3; color: #1a1a2e; }
+        input, select { padding: 10px; background: #0f3460; border: 1px solid #1a4a7e; color: white; border-radius: 5px; }
+        input:focus, select:focus { outline: none; border-color: #e94560; }
+        label { display: flex; flex-direction: column; gap: 5px; }
+        .status { padding: 10px; border-radius: 5px; margin: 5px 0; }
+        .status.connected { background: #2d6a4f; }
+        .status.disconnected { background: #9b2226; }
+        .status.pending { background: #b8860b; }
+        .log-container { height: 300px; overflow-y: auto; background: #0a0a14; padding: 10px; border-radius: 5px; font-size: 12px; }
+        .log-entry { margin: 2px 0; padding: 5px; border-left: 3px solid #333; }
+        .log-entry.send { border-color: #4ecca3; }
+        .log-entry.receive { border-color: #e94560; }
+        .log-entry.info { border-color: #ffd700; }
+        .log-entry.error { border-color: #ff0000; background: rgba(255,0,0,0.1); }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+        .stat-box { background: #0f3460; padding: 15px; border-radius: 5px; text-align: center; }
+        .stat-value { font-size: 24px; font-weight: bold; color: #4ecca3; }
+        .stat-label { font-size: 12px; color: #888; }
+        .history-item { background: #0f3460; padding: 10px; margin: 5px 0; border-radius: 5px; display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; }
+        .history-item.win { border-left: 3px solid #4ecca3; }
+        .history-item.loss { border-left: 3px solid #e94560; }
+        .flex { display: flex; gap: 10px; }
+        .flex-col { flex-direction: column; }
+        .flex-1 { flex: 1; }
+        pre { background: #0a0a14; padding: 10px; border-radius: 5px; overflow-x: auto; font-size: 11px; white-space: pre-wrap; word-break: break-all; }
+        .tabs { display: flex; gap: 5px; margin-bottom: 10px; }
+        .tab { padding: 10px 20px; background: #0f3460; cursor: pointer; border-radius: 5px 5px 0 0; }
+        .tab.active { background: #e94560; }
+        .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+
+        /* Wheel-specific styles */
+        .game-status-bar { display: flex; align-items: center; gap: 15px; padding: 15px; background: #0f3460; border-radius: 5px; margin: 10px 0; }
+        .game-status-indicator { font-size: 18px; font-weight: bold; padding: 8px 16px; border-radius: 5px; }
+        .game-status-indicator.WAIT_GAME { background: #2d6a4f; color: #4ecca3; }
+        .game-status-indicator.IN_GAME { background: #b8860b; color: #ffd700; }
+        .game-status-indicator.FINISH_GAME { background: #9b2226; color: #ff6b8a; }
+        .countdown { font-size: 24px; font-weight: bold; color: #ffd700; }
+        .color-history { display: flex; gap: 4px; flex-wrap: wrap; }
+        .color-dot { width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); }
+        .color-dot.BLACK { background: #333; }
+        .color-dot.RED { background: #e94560; }
+        .color-dot.BLUE { background: #2196f3; }
+        .color-dot.GREEN { background: #4ecca3; }
+
+        .color-btn { padding: 20px 30px; border: 3px solid transparent; border-radius: 10px; font-size: 18px; font-weight: bold; cursor: pointer; transition: all 0.2s; min-width: 140px; text-align: center; }
+        .color-btn:hover { transform: scale(1.05); }
+        .color-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .color-btn.selected { border-color: #ffd700; box-shadow: 0 0 15px rgba(255,215,0,0.5); }
+        .color-btn.BLACK { background: #333; color: #fff; }
+        .color-btn.RED { background: #e94560; color: #fff; }
+        .color-btn.BLUE { background: #2196f3; color: #fff; }
+        .color-btn.GREEN { background: #4ecca3; color: #1a1a2e; }
+
+        .wheel-result { text-align: center; padding: 20px; }
+        .wheel-result-color { width: 120px; height: 120px; border-radius: 50%; margin: 10px auto; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: bold; border: 4px solid rgba(255,255,255,0.3); }
+        .wheel-result-color.BLACK { background: #333; color: #fff; }
+        .wheel-result-color.RED { background: #e94560; color: #fff; }
+        .wheel-result-color.BLUE { background: #2196f3; color: #fff; }
+        .wheel-result-color.GREEN { background: #4ecca3; color: #1a1a2e; }
+
+        .bet-list-section { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+        .bet-list-col { background: #0a0a14; padding: 10px; border-radius: 5px; }
+        .bet-list-col h4 { text-align: center; margin: 5px 0; }
+        .bet-list-col.BLACK h4 { color: #aaa; }
+        .bet-list-col.RED h4 { color: #e94560; }
+        .bet-list-col.BLUE h4 { color: #2196f3; }
+        .bet-list-col.GREEN h4 { color: #4ecca3; }
+        .bet-list-entry { font-size: 11px; padding: 4px; border-bottom: 1px solid #1a1a2e; display: flex; justify-content: space-between; }
+        @media (max-width: 700px) { .bet-list-section { grid-template-columns: repeat(2, 1fr); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Wheel Backend Test UI v1.0</h1>
+        <p style="color: #888;">Functional testing interface for Wheel WebSocket backend</p>
+
+        <!-- Connection Section -->
+        <div class="section">
+            <div class="section-title">1. Authentication & Connection</div>
+            <div class="flex" style="flex-wrap: wrap;">
+                <label>
+                    API URL
+                    <input type="text" id="apiUrl" value="http://localhost:3000" style="width: 250px;">
+                </label>
+                <label>
+                    Operator ID
+                    <input type="text" id="operatorId" value="ee2013ed-e1f0-4d6e-97d2-f36619e2eb52" style="width: 300px;">
+                </label>
+                <label>
+                    Auth Token (JWT)
+                    <input type="text" id="authToken" value="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJzeHh1cmN6dWxlb2d6MTllcGF5ZiIsImFnZW50SWQiOiJicmxhZyIsImlhdCI6MTc3MDMyMzgxNSwiZXhwIjoxNzcwOTI4NjE1fQ.e9nPlc9Tl4Nl9_RPRzf3cS5exQgCqwHowEjaCSACVGg" style="width: 300px;">
+                </label>
+                <label>
+                    Currency
+                    <select id="currency">
+                        <option value="USD">USD</option>
+                        <option value="EUR">EUR</option>
+                        <option value="INR">INR</option>
+                    </select>
+                </label>
+            </div>
+            <div class="controls" style="margin-top: 10px;">
+                <button id="btnAuthenticate" onclick="authenticate()">1. Authenticate (HTTP POST)</button>
+                <button id="btnConnect" onclick="connectWebSocket()" disabled>2. Connect WebSocket</button>
+                <button id="btnDisconnect" onclick="disconnectWebSocket()" disabled class="secondary">Disconnect</button>
+            </div>
+            <div id="connectionStatus" class="status disconnected">Disconnected</div>
+            <div id="jwtDisplay" style="margin-top: 10px; display: none;">
+                <strong>JWT Token:</strong>
+                <pre id="jwtToken"></pre>
+                <strong>Decoded Payload:</strong>
+                <pre id="jwtPayload"></pre>
+            </div>
+        </div>
+
+        <!-- Account Stats -->
+        <div class="section">
+            <div class="section-title">Account Stats</div>
+            <div class="stats">
+                <div class="stat-box">
+                    <div class="stat-value" id="statBalance">0.00</div>
+                    <div class="stat-label">Balance (<span id="statCurrency">USD</span>)</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="statMinBet">0.01</div>
+                    <div class="stat-label">Min Bet</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="statMaxBet">200.00</div>
+                    <div class="stat-label">Max Bet</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="statTotalBets">0</div>
+                    <div class="stat-label">Total Bets</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="statTotalWagered">0.00</div>
+                    <div class="stat-label">Total Wagered</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="statTotalWon">0.00</div>
+                    <div class="stat-label">Total Won</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="statProfit">0.00</div>
+                    <div class="stat-label">Net Profit</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="statUserId">-</div>
+                    <div class="stat-label">User ID</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Status -->
+        <div class="section">
+            <div class="section-title">2. Game Status</div>
+            <div class="game-status-bar">
+                <div class="game-status-indicator WAIT_GAME" id="gameStatusIndicator">WAIT_GAME</div>
+                <div>
+                    <span style="color: #888;">Countdown:</span>
+                    <span class="countdown" id="countdownDisplay">--</span>
+                </div>
+                <div>
+                    <span style="color: #888;">Round ID:</span>
+                    <span id="roundIdDisplay" style="font-weight: bold;">-</span>
+                </div>
+            </div>
+            <div style="margin-top: 10px;">
+                <strong style="color: #888;">Previous Results:</strong>
+                <div class="color-history" id="colorHistory" style="margin-top: 5px;"></div>
+            </div>
+        </div>
+
+        <!-- Wheel Result -->
+        <div class="section">
+            <div class="section-title">3. Wheel Result</div>
+            <div class="two-col">
+                <div class="wheel-result">
+                    <div class="wheel-result-color" id="wheelResultColor" style="background: #222; color: #666;">
+                        SPIN
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <div><span style="color: #888;">Cell Index:</span> <span id="resultCellIndex">-</span></div>
+                        <div><span style="color: #888;">Cell Color:</span> <span id="resultCellColor">-</span></div>
+                        <div><span style="color: #888;">In-Cell Offset:</span> <span id="resultInCellOffset">-</span></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="section-title">Multipliers</div>
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <tr style="border-bottom: 1px solid #0f3460;">
+                            <td style="padding: 8px;"><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#333;vertical-align:middle;"></span> BLACK</td>
+                            <td style="padding: 8px; text-align: right; font-weight: bold;">x2</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #0f3460;">
+                            <td style="padding: 8px;"><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#e94560;vertical-align:middle;"></span> RED</td>
+                            <td style="padding: 8px; text-align: right; font-weight: bold;">x3</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #0f3460;">
+                            <td style="padding: 8px;"><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#2196f3;vertical-align:middle;"></span> BLUE</td>
+                            <td style="padding: 8px; text-align: right; font-weight: bold;">x5</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px;"><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#4ecca3;vertical-align:middle;"></span> GREEN</td>
+                            <td style="padding: 8px; text-align: right; font-weight: bold;">x50</td>
+                        </tr>
+                    </table>
+                    <div style="margin-top: 15px; padding: 10px; background: #0f3460; border-radius: 5px;">
+                        <strong>Last Win:</strong>
+                        <div style="margin-top: 5px;">
+                            <span id="lastWinInfo" style="color: #888;">No wins yet</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Betting Panel -->
+        <div class="section">
+            <div class="section-title">4. Place Bet</div>
+            <div style="margin-bottom: 15px;">
+                <strong>Select Color:</strong>
+                <div class="controls" style="margin-top: 5px;">
+                    <button class="color-btn BLACK" onclick="selectColor('BLACK')" id="colorBtnBLACK">BLACK<br><small>x2</small></button>
+                    <button class="color-btn RED" onclick="selectColor('RED')" id="colorBtnRED">RED<br><small>x3</small></button>
+                    <button class="color-btn BLUE" onclick="selectColor('BLUE')" id="colorBtnBLUE">BLUE<br><small>x5</small></button>
+                    <button class="color-btn GREEN" onclick="selectColor('GREEN')" id="colorBtnGREEN">GREEN<br><small>x50</small></button>
+                </div>
+            </div>
+            <div class="controls">
+                <label>
+                    Bet Amount
+                    <input type="number" id="betAmount" value="1.00" min="0.01" max="200" step="0.01" style="width: 120px;" onchange="updatePotentialWin()">
+                </label>
+                <button onclick="setBetAmount('min')" class="secondary">MIN</button>
+                <button onclick="setBetAmount('max')" class="secondary">MAX</button>
+                <button onclick="halveBet()" class="secondary">1/2</button>
+                <button onclick="doubleBet()" class="secondary">2x</button>
+                <button onclick="setBetPreset(0.5)" class="secondary">$0.50</button>
+                <button onclick="setBetPreset(1)" class="secondary">$1</button>
+                <button onclick="setBetPreset(2)" class="secondary">$2</button>
+                <button onclick="setBetPreset(7)" class="secondary">$7</button>
+                <div style="padding: 10px; background: #0f3460; border-radius: 5px;">
+                    <strong>Potential Win:</strong> <span id="potentialWinDisplay">$0.00</span>
+                </div>
+            </div>
+            <div class="controls">
+                <button id="btnPlaceBet" onclick="placeBet()" class="success" disabled style="font-size: 18px; padding: 15px 40px;">
+                    PLACE BET
+                </button>
+                <span id="nextRoundBetIndicator" style="display:none; color: #ffd700; font-weight: bold; padding: 10px;">
+                    Next Round Bet
+                </span>
+            </div>
+            <div id="betStatus" class="status pending" style="display: none;"></div>
+        </div>
+
+        <!-- Bet List -->
+        <div class="section">
+            <div class="section-title">5. Live Bet List</div>
+            <div style="margin-bottom: 10px;">
+                <span style="color: #888;">Total Pool:</span>
+                <span id="betListTotal" style="font-weight: bold; font-size: 18px; color: #4ecca3;">$0.00</span>
+            </div>
+            <div class="bet-list-section" id="betListContainer">
+                <div class="bet-list-col BLACK">
+                    <h4>BLACK (x2)</h4>
+                    <div id="betListBLACK"><div style="color:#666;font-size:11px;">No bets</div></div>
+                </div>
+                <div class="bet-list-col RED">
+                    <h4>RED (x3)</h4>
+                    <div id="betListRED"><div style="color:#666;font-size:11px;">No bets</div></div>
+                </div>
+                <div class="bet-list-col BLUE">
+                    <h4>BLUE (x5)</h4>
+                    <div id="betListBLUE"><div style="color:#666;font-size:11px;">No bets</div></div>
+                </div>
+                <div class="bet-list-col GREEN">
+                    <h4>GREEN (x50)</h4>
+                    <div id="betListGREEN"><div style="color:#666;font-size:11px;">No bets</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Manual Socket Commands -->
+        <div class="section">
+            <div class="section-title">6. Manual Socket Commands</div>
+            <div class="controls">
+                <button onclick="sendGetConfig()" class="secondary">Get Game Config</button>
+                <button onclick="sendGetGameState()" class="secondary">Get Game State</button>
+                <button onclick="sendGetHistory()" class="secondary">Get Bet History</button>
+                <button onclick="sendPing()" class="secondary">Send Ping</button>
+                <button onclick="sendConnect()" class="secondary">Send 40 (Connect)</button>
+            </div>
+            <div style="margin-top: 10px;">
+                <label>
+                    Custom Event Name
+                    <input type="text" id="customEventName" placeholder="gameService" style="width: 200px;">
+                </label>
+            </div>
+            <div style="margin-top: 10px;">
+                <label>
+                    Custom Payload (JSON)
+                    <textarea id="customPayload" placeholder='{"action": "make-bet", "payload": {"betAmount": "1", "color": "RED", "currency": "USD"}}' style="width: 100%; height: 80px; background: #0f3460; border: 1px solid #1a4a7e; color: white; border-radius: 5px; padding: 10px;"></textarea>
+                </label>
+            </div>
+            <div class="controls">
+                <button onclick="sendCustomEvent()">Send Custom Event</button>
+                <button onclick="sendRawMessage()" class="secondary">Send Raw Message</button>
+            </div>
+            <div style="margin-top: 10px;">
+                <label>
+                    Raw Message (for protocol testing)
+                    <input type="text" id="rawMessage" placeholder="42[&quot;eventName&quot;, {...}]" style="width: 100%;">
+                </label>
+            </div>
+        </div>
+
+        <!-- Logs Section -->
+        <div class="section">
+            <div class="section-title">7. Socket Message Log</div>
+            <div class="controls">
+                <button onclick="clearLogs()" class="secondary">Clear Logs</button>
+                <label style="flex-direction: row; align-items: center;">
+                    <input type="checkbox" id="autoScroll" checked> Auto Scroll
+                </label>
+                <label style="flex-direction: row; align-items: center;">
+                    <input type="checkbox" id="prettyPrint" checked> Pretty Print
+                </label>
+                <label style="flex-direction: row; align-items: center;">
+                    <input type="checkbox" id="showPingPong"> Show Ping/Pong
+                </label>
+                <button onclick="exportLogs()" class="secondary">Export Logs</button>
+            </div>
+            <div class="log-container" id="logContainer"></div>
+        </div>
+
+        <!-- Bet History -->
+        <div class="section">
+            <div class="section-title">8. Session Bet History (Last 50)</div>
+            <div class="controls">
+                <button onclick="requestServerHistory()" class="secondary">Request Server History</button>
+                <button onclick="clearHistory()" class="secondary">Clear Local History</button>
+                <button onclick="exportHistory()" class="secondary">Export CSV</button>
+            </div>
+            <div id="betHistory">No bets yet</div>
+        </div>
+
+        <!-- Raw Data Display -->
+        <div class="section">
+            <div class="section-title">9. Raw Server Data</div>
+            <div class="tabs" id="dataTabs">
+                <div class="tab active" onclick="showDataTab('betsConfig')">Bets Config</div>
+                <div class="tab" onclick="showDataTab('betsRanges')">Bet Ranges</div>
+                <div class="tab" onclick="showDataTab('currencies')">Currencies</div>
+                <div class="tab" onclick="showDataTab('myData')">My Data</div>
+                <div class="tab" onclick="showDataTab('lastAck')">Last ACK</div>
+                <div class="tab" onclick="showDataTab('serverHistory')">Server History</div>
+            </div>
+            <pre id="rawDataDisplay">{}</pre>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // STATE
+        // ============================================
+        let state = {
+            jwt: null,
+            jwtPayload: null,
+            socket: null,
+            connected: false,
+            selectedColor: null,
+            messageId: 0,
+            pendingCallbacks: {},
+            balance: 0,
+            currency: 'USD',
+            minBet: 0.01,
+            maxBet: 200,
+            betsConfig: null,
+            betsRanges: null,
+            currencies: null,
+            myData: null,
+            lastAck: null,
+            serverHistory: null,
+            totalBets: 0,
+            totalWagered: 0,
+            totalWon: 0,
+            betHistory: [],
+            logs: [],
+            gameStatus: 'WAIT_GAME',
+            roundId: null,
+            countdownMs: 0,
+            countdownInterval: null,
+            prevRoundResults: [],
+            lastResult: { cellIndex: null, cellColor: null, inCellOffset: null },
+        };
+
+        const MULTIPLIERS = { BLACK: 2, RED: 3, BLUE: 5, GREEN: 50 };
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+        function init() {
+            updateUI();
+            updatePotentialWin();
+        }
+
+        // ============================================
+        // AUTHENTICATION
+        // ============================================
+        async function authenticate() {
+            const apiUrl = document.getElementById('apiUrl').value;
+            const operatorId = document.getElementById('operatorId').value;
+            const authToken = document.getElementById('authToken').value;
+            const currency = document.getElementById('currency').value;
+
+            const requestBody = {
+                operator: operatorId,
+                auth_token: authToken,
+                currency: currency,
+                game_mode: 'wheel'
+            };
+
+            log('send', 'POST /api/auth\n' + JSON.stringify(requestBody, null, 2));
+
+            try {
+                const response = await fetch(`${apiUrl}/api/auth`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const data = await response.json();
+                log('receive', 'Auth Response (' + response.status + '):\n' + JSON.stringify(data, null, 2));
+
+                if (data.success) {
+                    state.jwt = data.result || data.data;
+                    state.jwtPayload = parseJwt(state.jwt);
+
+                    document.getElementById('jwtDisplay').style.display = 'block';
+                    document.getElementById('jwtToken').textContent = state.jwt;
+                    document.getElementById('jwtPayload').textContent = JSON.stringify(state.jwtPayload, null, 2);
+
+                    document.getElementById('btnConnect').disabled = false;
+
+                    if (state.jwtPayload) {
+                        state.balance = parseFloat(state.jwtPayload.balance) || 0;
+                        state.currency = state.jwtPayload.currency || 'USD';
+                        updateUI();
+                    }
+
+                    log('info', 'Authentication successful! Click "Connect WebSocket" to proceed.');
+                } else {
+                    log('error', 'Authentication failed: ' + JSON.stringify(data));
+                }
+            } catch (err) {
+                log('error', 'Authentication error: ' + err.message);
+            }
+        }
+
+        function parseJwt(token) {
+            try {
+                const base64Url = token.split('.')[1];
+                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                const jsonPayload = decodeURIComponent(atob(base64).split('').map(c =>
+                    '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+                ).join(''));
+                return JSON.parse(jsonPayload);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        // ============================================
+        // WEBSOCKET CONNECTION
+        // ============================================
+        function connectWebSocket() {
+            if (!state.jwt) {
+                log('error', 'Please authenticate first');
+                return;
+            }
+
+            const rawApiUrl = document.getElementById('apiUrl').value;
+            const isSecure = rawApiUrl.startsWith('https://');
+            const apiHost = rawApiUrl.replace('https://', '').replace('http://', '');
+            const operatorId = document.getElementById('operatorId').value;
+
+            const wsProtocol = isSecure ? 'wss' : 'ws';
+            const wsPort = isSecure ? ':443' : '';
+            const wsUrl = `${wsProtocol}://${apiHost}${wsPort}/io/?gameMode=wheel&operatorId=${operatorId}&Authorization=${encodeURIComponent(state.jwt)}&EIO=4&transport=websocket`;
+
+            log('info', 'Connecting to: ' + wsUrl.substring(0, 80) + '...');
+
+            try {
+                state.socket = new WebSocket(wsUrl);
+
+                state.socket.onopen = () => {
+                    log('info', 'WebSocket connection opened');
+                    updateConnectionStatus('pending', 'WebSocket opened, waiting for Engine.IO handshake...');
+                };
+
+                state.socket.onmessage = (event) => {
+                    handleSocketMessage(event.data);
+                };
+
+                state.socket.onclose = (event) => {
+                    log('info', `WebSocket closed: code=${event.code}, reason=${event.reason || 'none'}`);
+                    state.connected = false;
+                    state.socket = null;
+                    updateConnectionStatus('disconnected', 'Disconnected');
+                    document.getElementById('btnConnect').disabled = false;
+                    document.getElementById('btnDisconnect').disabled = true;
+                    updateUI();
+                };
+
+                state.socket.onerror = (error) => {
+                    log('error', 'WebSocket error occurred');
+                };
+
+                document.getElementById('btnConnect').disabled = true;
+
+            } catch (err) {
+                log('error', 'Failed to connect: ' + err.message);
+            }
+        }
+
+        function disconnectWebSocket() {
+            if (state.socket) {
+                state.socket.close();
+            }
+        }
+
+        function handleSocketMessage(data) {
+            // Filter ping/pong if disabled
+            if (!document.getElementById('showPingPong').checked && (data === '2' || data === '3')) {
+                if (data === '2') sendRaw('3'); // Still respond to ping
+                return;
+            }
+
+            log('receive', data);
+
+            // Engine.IO OPEN packet (0{...})
+            if (data.startsWith('0{')) {
+                try {
+                    const payload = JSON.parse(data.substring(1));
+                    log('info', `Engine.IO handshake: sid=${payload.sid}, pingInterval=${payload.pingInterval}ms`);
+                    sendRaw('40');
+                } catch (e) {
+                    log('error', 'Failed to parse Engine.IO OPEN: ' + e.message);
+                }
+                return;
+            }
+
+            // Socket.IO CONNECT ACK (40 or 40{...})
+            if (data === '40' || data.startsWith('40{')) {
+                log('info', 'Socket.IO connected to namespace');
+                state.connected = true;
+                updateConnectionStatus('connected', 'Connected');
+                document.getElementById('btnDisconnect').disabled = false;
+                updateUI();
+                return;
+            }
+
+            // Engine.IO PING (2)
+            if (data === '2') {
+                sendRaw('3'); // PONG
+                return;
+            }
+
+            // Engine.IO PONG (3)
+            if (data === '3') {
+                return;
+            }
+
+            // Socket.IO EVENT (42[...])
+            if (data.startsWith('42')) {
+                const jsonStr = data.substring(2);
+                try {
+                    const parsed = JSON.parse(jsonStr);
+                    if (Array.isArray(parsed) && parsed.length >= 2) {
+                        handleEvent(parsed[0], parsed[1]);
+                    }
+                } catch (e) {
+                    log('error', 'Failed to parse Socket.IO EVENT: ' + e.message);
+                }
+                return;
+            }
+
+            // Socket.IO ACK (43{id}[...])
+            if (data.startsWith('43')) {
+                const match = data.match(/^43(\d+)/);
+                if (match) {
+                    const msgId = parseInt(match[1]);
+                    const jsonStr = data.substring(2 + match[1].length);
+                    try {
+                        const payload = JSON.parse(jsonStr);
+                        handleAck(msgId, payload);
+                    } catch (e) {
+                        log('error', 'Failed to parse Socket.IO ACK: ' + e.message);
+                    }
+                }
+                return;
+            }
+
+            // Socket.IO ERROR (44)
+            if (data.startsWith('44')) {
+                log('error', 'Socket.IO error: ' + data.substring(2));
+                return;
+            }
+        }
+
+        function handleEvent(eventName, payload) {
+            log('info', `Event: "${eventName}"`);
+
+            switch (eventName) {
+                case 'onBalanceChange':
+                    state.balance = parseFloat(payload.balance) || 0;
+                    state.currency = payload.currency || state.currency;
+                    log('info', `Balance updated: ${state.balance} ${state.currency}`);
+                    updateUI();
+                    break;
+
+                case 'betsRanges':
+                    state.betsRanges = payload;
+                    if (payload[state.currency]) {
+                        state.minBet = parseFloat(payload[state.currency][0]) || 0.01;
+                        state.maxBet = parseFloat(payload[state.currency][1]) || 200;
+                    }
+                    updateUI();
+                    break;
+
+                case 'betsConfig':
+                    state.betsConfig = payload;
+                    if (payload[state.currency]) {
+                        state.minBet = parseFloat(payload[state.currency].minBetAmount) || state.minBet;
+                        state.maxBet = parseFloat(payload[state.currency].maxBetAmount) || state.maxBet;
+                    }
+                    updateUI();
+                    break;
+
+                case 'myData':
+                    state.myData = payload;
+                    updateUI();
+                    break;
+
+                case 'currencies':
+                    state.currencies = payload;
+                    break;
+
+                case 'gameService-game-status-changed':
+                    handleGameStatusChanged(payload);
+                    break;
+
+                case 'gameService-bet-list-updated':
+                    handleBetListUpdated(payload);
+                    break;
+
+                case 'gameService-withdraw-result':
+                    handleWithdrawResult(payload);
+                    break;
+
+                case 'gameService-exception':
+                    log('error', `Game exception: ${JSON.stringify(payload)}`);
+                    break;
+
+                case 'gameService-onGameSeeds':
+                    log('info', `Game seeds: ${JSON.stringify(payload)}`);
+                    break;
+
+                default:
+                    log('info', `Unhandled event: ${eventName}`);
+            }
+        }
+
+        function handleAck(msgId, payload) {
+            log('info', `ACK received for message #${msgId}`);
+
+            const callback = state.pendingCallbacks[msgId];
+            if (callback) {
+                callback(payload);
+                delete state.pendingCallbacks[msgId];
+            }
+        }
+
+        // ============================================
+        // GAME STATUS HANDLING
+        // ============================================
+        function handleGameStatusChanged(payload) {
+            state.gameStatus = payload.status;
+            state.roundId = payload.gameId || state.roundId;
+
+            // Update status indicator
+            const indicator = document.getElementById('gameStatusIndicator');
+            indicator.textContent = payload.status;
+            indicator.className = 'game-status-indicator ' + payload.status;
+
+            // Update round ID
+            if (payload.gameId) {
+                document.getElementById('roundIdDisplay').textContent = payload.gameId;
+            }
+
+            // Start countdown
+            if (payload.nextChangeInMs) {
+                startCountdown(payload.nextChangeInMs);
+            }
+
+            // Handle per-status data
+            if (payload.status === 'WAIT_GAME') {
+                if (payload.prevRoundResults) {
+                    state.prevRoundResults = payload.prevRoundResults;
+                    renderColorHistory();
+                }
+                log('info', `WAIT_GAME: roundId=${payload.gameId}, wait=${payload.nextChangeInMs}ms`);
+            }
+
+            if (payload.status === 'IN_GAME') {
+                state.lastResult.cellIndex = payload.cellIndex;
+                state.lastResult.cellColor = payload.cellColor;
+                state.lastResult.inCellOffset = payload.inCellOffset;
+                updateWheelResult();
+                log('info', `IN_GAME: cellIndex=${payload.cellIndex}, cellColor=${payload.cellColor}, offset=${payload.inCellOffset}`);
+            }
+
+            if (payload.status === 'FINISH_GAME') {
+                state.lastResult.cellIndex = payload.cellIndex;
+                state.lastResult.cellColor = payload.cellColor;
+                state.lastResult.inCellOffset = payload.inCellOffset;
+                updateWheelResult();
+                log('info', `FINISH_GAME: cellColor=${payload.cellColor}, display=${payload.nextChangeInMs}ms`);
+            }
+
+            updateUI();
+        }
+
+        function startCountdown(ms) {
+            if (state.countdownInterval) {
+                clearInterval(state.countdownInterval);
+            }
+
+            state.countdownMs = ms;
+            const startTime = Date.now();
+
+            const update = () => {
+                const elapsed = Date.now() - startTime;
+                const remaining = Math.max(0, ms - elapsed);
+                document.getElementById('countdownDisplay').textContent = (remaining / 1000).toFixed(1) + 's';
+
+                if (remaining <= 0) {
+                    clearInterval(state.countdownInterval);
+                    state.countdownInterval = null;
+                }
+            };
+
+            update();
+            state.countdownInterval = setInterval(update, 100);
+        }
+
+        function renderColorHistory() {
+            const container = document.getElementById('colorHistory');
+            if (!state.prevRoundResults || state.prevRoundResults.length === 0) {
+                container.innerHTML = '<span style="color:#666;">No history yet</span>';
+                return;
+            }
+
+            container.innerHTML = state.prevRoundResults.map(r =>
+                `<div class="color-dot ${r.cellColor}" title="Index: ${r.cellIndex}, Color: ${r.cellColor}"></div>`
+            ).join('');
+        }
+
+        function updateWheelResult() {
+            const { cellIndex, cellColor, inCellOffset } = state.lastResult;
+
+            document.getElementById('resultCellIndex').textContent = cellIndex !== null ? cellIndex : '-';
+            document.getElementById('resultCellColor').textContent = cellColor || '-';
+            document.getElementById('resultInCellOffset').textContent = inCellOffset !== null ? inCellOffset.toFixed(4) : '-';
+
+            const resultEl = document.getElementById('wheelResultColor');
+            if (cellColor) {
+                resultEl.className = 'wheel-result-color ' + cellColor;
+                resultEl.textContent = cellColor + '\nx' + (MULTIPLIERS[cellColor] || '?');
+            } else {
+                resultEl.className = 'wheel-result-color';
+                resultEl.style.background = '#222';
+                resultEl.style.color = '#666';
+                resultEl.textContent = 'SPIN';
+            }
+        }
+
+        // ============================================
+        // BET LIST HANDLING
+        // ============================================
+        function handleBetListUpdated(payload) {
+            document.getElementById('betListTotal').textContent = '$' + (payload.sumInUSD || 0).toFixed(2);
+
+            ['BLACK', 'RED', 'BLUE', 'GREEN'].forEach(color => {
+                const container = document.getElementById('betList' + color);
+                const bets = payload.bets && payload.bets[color] ? payload.bets[color] : [];
+
+                if (bets.length === 0) {
+                    container.innerHTML = '<div style="color:#666;font-size:11px;">No bets</div>';
+                } else {
+                    container.innerHTML = bets.map(b =>
+                        `<div class="bet-list-entry">
+                            <span>${(b.nickname || b.userId || '').substring(0, 12)}</span>
+                            <span style="font-weight:bold;">$${parseFloat(b.betAmount).toFixed(2)}</span>
+                        </div>`
+                    ).join('');
+                }
+            });
+        }
+
+        // ============================================
+        // WITHDRAW RESULT HANDLING
+        // ============================================
+        function handleWithdrawResult(payload) {
+            const winAmount = parseFloat(payload.winAmount) || 0;
+            const winCoeff = payload.winCoeff || 0;
+
+            log('info', `WIN! Amount: ${winAmount} ${payload.currency}, Multiplier: x${winCoeff}`);
+            document.getElementById('lastWinInfo').innerHTML =
+                `<span style="color: #4ecca3; font-size: 20px; font-weight: bold;">+$${winAmount.toFixed(2)}</span> (x${winCoeff})`;
+
+            state.totalWon += winAmount;
+            updateUI();
+        }
+
+        // ============================================
+        // COLOR SELECTION & BETTING
+        // ============================================
+        function selectColor(color) {
+            state.selectedColor = color;
+
+            ['BLACK', 'RED', 'BLUE', 'GREEN'].forEach(c => {
+                document.getElementById('colorBtn' + c).classList.toggle('selected', c === color);
+            });
+
+            updatePotentialWin();
+            updateUI();
+        }
+
+        function updatePotentialWin() {
+            const bet = parseFloat(document.getElementById('betAmount').value) || 0;
+            if (state.selectedColor) {
+                const mult = MULTIPLIERS[state.selectedColor];
+                document.getElementById('potentialWinDisplay').textContent =
+                    '$' + (bet * mult).toFixed(2) + ' (x' + mult + ')';
+            } else {
+                document.getElementById('potentialWinDisplay').textContent = '$0.00';
+            }
+        }
+
+        function placeBet() {
+            if (!state.connected) {
+                log('error', 'Not connected to server');
+                return;
+            }
+
+            if (!state.selectedColor) {
+                log('error', 'Please select a color');
+                return;
+            }
+
+            const betAmount = document.getElementById('betAmount').value;
+
+            if (parseFloat(betAmount) > state.balance) {
+                log('error', 'Insufficient balance');
+                return;
+            }
+
+            const payload = {
+                action: 'make-bet',
+                payload: {
+                    betAmount: betAmount,
+                    color: state.selectedColor,
+                    currency: state.currency
+                }
+            };
+
+            log('info', 'Placing bet: ' + JSON.stringify(payload.payload));
+
+            document.getElementById('btnPlaceBet').disabled = true;
+            document.getElementById('betStatus').style.display = 'block';
+            document.getElementById('betStatus').textContent = 'Processing bet...';
+            document.getElementById('betStatus').className = 'status pending';
+
+            sendEvent('gameService', payload, (response) => {
+                log('info', 'Bet ACK received');
+                state.lastAck = response;
+
+                if (Array.isArray(response)) {
+                    // ACK is array format
+                    const result = response[0];
+                    processBetAck(result, betAmount);
+                } else if (response && response.error) {
+                    log('error', 'Bet failed: ' + JSON.stringify(response.error));
+                    document.getElementById('betStatus').textContent = 'Bet failed: ' + (response.error.message || response.error);
+                    document.getElementById('betStatus').className = 'status disconnected';
+                } else if (response && response.id) {
+                    // ACK is direct object
+                    processBetAck(response, betAmount);
+                } else {
+                    log('info', 'Unexpected ACK format: ' + JSON.stringify(response));
+                }
+
+                document.getElementById('btnPlaceBet').disabled = false;
+            });
+        }
+
+        function processBetAck(result, betAmount) {
+            const isNextRound = result.isNextRoundBet || false;
+            const bet = parseFloat(betAmount);
+
+            state.totalBets++;
+            state.totalWagered += bet;
+
+            // Add to local history
+            state.betHistory.unshift({
+                id: state.totalBets,
+                timestamp: new Date().toISOString(),
+                color: result.color || state.selectedColor,
+                betAmount: bet,
+                currency: result.currency || state.currency,
+                isNextRoundBet: isNextRound,
+                playerGameId: result.playerGameId,
+                nickname: result.nickname,
+            });
+            if (state.betHistory.length > 50) state.betHistory.pop();
+
+            if (isNextRound) {
+                document.getElementById('betStatus').textContent = 'Bet queued for next round';
+                document.getElementById('betStatus').className = 'status pending';
+                document.getElementById('nextRoundBetIndicator').style.display = 'inline';
+            } else {
+                document.getElementById('betStatus').textContent =
+                    `Bet placed! ${result.color || state.selectedColor} - $${bet.toFixed(2)}`;
+                document.getElementById('betStatus').className = 'status connected';
+                document.getElementById('nextRoundBetIndicator').style.display = 'none';
+            }
+
+            updateUI();
+            renderBetHistory();
+        }
+
+        function setBetAmount(type) {
+            const input = document.getElementById('betAmount');
+            if (type === 'min') {
+                input.value = state.minBet.toFixed(2);
+            } else if (type === 'max') {
+                input.value = Math.min(state.maxBet, state.balance).toFixed(2);
+            }
+            updatePotentialWin();
+        }
+
+        function setBetPreset(amount) {
+            document.getElementById('betAmount').value = amount.toFixed(2);
+            updatePotentialWin();
+        }
+
+        function halveBet() {
+            const input = document.getElementById('betAmount');
+            input.value = Math.max(state.minBet, parseFloat(input.value) / 2).toFixed(2);
+            updatePotentialWin();
+        }
+
+        function doubleBet() {
+            const input = document.getElementById('betAmount');
+            input.value = Math.min(state.maxBet, parseFloat(input.value) * 2).toFixed(2);
+            updatePotentialWin();
+        }
+
+        // ============================================
+        // RAW SEND/RECEIVE
+        // ============================================
+        function sendRaw(data) {
+            if (state.socket && state.socket.readyState === WebSocket.OPEN) {
+                state.socket.send(data);
+                if (!(!document.getElementById('showPingPong').checked && (data === '2' || data === '3'))) {
+                    log('send', data);
+                }
+            } else {
+                log('error', 'Socket not connected');
+            }
+        }
+
+        function sendEvent(event, payload, callback) {
+            const msgId = state.messageId++;
+            const message = [event, payload];
+            const data = `42${msgId}${JSON.stringify(message)}`;
+
+            if (callback) {
+                state.pendingCallbacks[msgId] = callback;
+            }
+
+            sendRaw(data);
+            return msgId;
+        }
+
+        // ============================================
+        // SOCKET COMMANDS
+        // ============================================
+        function sendGetConfig() {
+            sendEvent('gameService', { action: 'get-game-config' }, (response) => {
+                log('info', 'Game Config response received');
+                state.lastAck = response;
+            });
+        }
+
+        function sendGetGameState() {
+            sendEvent('gameService', { action: 'get-game-state' }, (response) => {
+                log('info', 'Game State response received');
+                state.lastAck = response;
+            });
+        }
+
+        function sendGetHistory() {
+            sendEvent('gameService', { action: 'get-my-bets-history' }, (response) => {
+                log('info', 'Bet history response received');
+                state.serverHistory = response;
+                state.lastAck = response;
+            });
+        }
+
+        function requestServerHistory() {
+            sendGetHistory();
+        }
+
+        function sendPing() {
+            sendRaw('2');
+        }
+
+        function sendConnect() {
+            sendRaw('40');
+        }
+
+        function sendCustomEvent() {
+            const eventName = document.getElementById('customEventName').value || 'gameService';
+            const payloadStr = document.getElementById('customPayload').value;
+
+            try {
+                const payload = payloadStr ? JSON.parse(payloadStr) : {};
+                sendEvent(eventName, payload, (response) => {
+                    log('info', 'Custom event response received');
+                    state.lastAck = response;
+                });
+            } catch (e) {
+                log('error', 'Invalid JSON payload: ' + e.message);
+            }
+        }
+
+        function sendRawMessage() {
+            const raw = document.getElementById('rawMessage').value;
+            if (raw) {
+                sendRaw(raw);
+            }
+        }
+
+        // ============================================
+        // UI UPDATES
+        // ============================================
+        function updateUI() {
+            document.getElementById('statBalance').textContent = state.balance.toFixed(2);
+            document.getElementById('statCurrency').textContent = state.currency;
+            document.getElementById('statMinBet').textContent = state.minBet.toFixed(2);
+            document.getElementById('statMaxBet').textContent = state.maxBet.toFixed(2);
+            document.getElementById('statTotalBets').textContent = state.totalBets;
+            document.getElementById('statTotalWagered').textContent = state.totalWagered.toFixed(2);
+            document.getElementById('statTotalWon').textContent = state.totalWon.toFixed(2);
+
+            const profit = state.totalWon - state.totalWagered;
+            document.getElementById('statProfit').textContent = profit.toFixed(2);
+            document.getElementById('statProfit').style.color = profit >= 0 ? '#4ecca3' : '#e94560';
+
+            if (state.myData) {
+                document.getElementById('statUserId').textContent = (state.myData.userId || '').substring(0, 8) + '...';
+            } else if (state.jwtPayload) {
+                document.getElementById('statUserId').textContent = (state.jwtPayload.userId || '').substring(0, 8) + '...';
+            }
+
+            const canBet = state.connected && state.selectedColor !== null;
+            document.getElementById('btnPlaceBet').disabled = !canBet;
+        }
+
+        function updateConnectionStatus(status, message) {
+            const el = document.getElementById('connectionStatus');
+            el.className = 'status ' + status;
+            el.textContent = message;
+        }
+
+        // ============================================
+        // LOGGING
+        // ============================================
+        function log(type, message) {
+            const timestamp = new Date().toISOString();
+            state.logs.push({ timestamp, type, message });
+
+            const container = document.getElementById('logContainer');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry ' + type;
+
+            let displayMessage = message;
+            if (document.getElementById('prettyPrint').checked) {
+                try {
+                    const jsonMatch = message.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+                    if (jsonMatch) {
+                        const parsed = JSON.parse(jsonMatch[0]);
+                        displayMessage = message.replace(jsonMatch[0], JSON.stringify(parsed, null, 2));
+                    }
+                } catch (e) {}
+            }
+
+            const typeColors = {
+                send: '#4ecca3',
+                receive: '#e94560',
+                info: '#ffd700',
+                error: '#ff4444'
+            };
+
+            entry.innerHTML = `<span style="color: #666;">[${timestamp.split('T')[1].split('.')[0]}]</span> ` +
+                `<span style="color: ${typeColors[type] || '#fff'};">[${type.toUpperCase()}]</span> ` +
+                `<pre style="display: inline; margin: 0; white-space: pre-wrap;">${escapeHtml(displayMessage)}</pre>`;
+
+            container.appendChild(entry);
+
+            if (document.getElementById('autoScroll').checked) {
+                container.scrollTop = container.scrollHeight;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function clearLogs() {
+            document.getElementById('logContainer').innerHTML = '';
+            state.logs = [];
+        }
+
+        function exportLogs() {
+            const content = state.logs.map(l => `[${l.timestamp}] [${l.type}] ${l.message}`).join('\n');
+            downloadFile('wheel-logs-' + Date.now() + '.txt', content);
+        }
+
+        // ============================================
+        // HISTORY
+        // ============================================
+        function renderBetHistory() {
+            const container = document.getElementById('betHistory');
+            if (state.betHistory.length === 0) {
+                container.innerHTML = 'No bets yet';
+                return;
+            }
+
+            container.innerHTML = state.betHistory.map(bet => {
+                const colorStyle = {
+                    BLACK: 'background:#333;color:#fff;',
+                    RED: 'background:#e94560;color:#fff;',
+                    BLUE: 'background:#2196f3;color:#fff;',
+                    GREEN: 'background:#4ecca3;color:#1a1a2e;',
+                }[bet.color] || '';
+
+                return `
+                    <div class="history-item ${bet.winAmount > 0 ? 'win' : 'loss'}">
+                        <div style="min-width: 60px;">
+                            <strong>#${bet.id}</strong><br>
+                            <span style="font-size: 10px; color: #888;">${bet.timestamp.split('T')[1].split('.')[0]}</span>
+                        </div>
+                        <div>
+                            <span style="display:inline-block;padding:3px 10px;border-radius:3px;font-weight:bold;${colorStyle}">${bet.color}</span>
+                            ${bet.isNextRoundBet ? '<span style="color:#ffd700;margin-left:8px;">[Next Round]</span>' : ''}
+                        </div>
+                        <div style="text-align: right; min-width: 100px;">
+                            <div>Bet: $${bet.betAmount.toFixed(2)}</div>
+                            <div style="font-size: 11px; color: #888;">${bet.currency}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function clearHistory() {
+            state.betHistory = [];
+            state.totalBets = 0;
+            state.totalWagered = 0;
+            state.totalWon = 0;
+            renderBetHistory();
+            updateUI();
+        }
+
+        function exportHistory() {
+            const headers = ['ID', 'Timestamp', 'Color', 'BetAmount', 'Currency', 'IsNextRound', 'PlayerGameId'];
+            const rows = state.betHistory.map(b => [
+                b.id, b.timestamp, b.color, b.betAmount, b.currency, b.isNextRoundBet, b.playerGameId || ''
+            ]);
+            const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+            downloadFile('wheel-history-' + Date.now() + '.csv', csv);
+        }
+
+        function downloadFile(filename, content) {
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // ============================================
+        // DATA DISPLAY
+        // ============================================
+        function showDataTab(type) {
+            const data = {
+                betsConfig: state.betsConfig,
+                betsRanges: state.betsRanges,
+                currencies: state.currencies,
+                myData: state.myData,
+                lastAck: state.lastAck,
+                serverHistory: state.serverHistory
+            };
+
+            document.getElementById('rawDataDisplay').textContent = JSON.stringify(data[type] || {}, null, 2);
+
+            const types = ['betsConfig', 'betsRanges', 'currencies', 'myData', 'lastAck', 'serverHistory'];
+            document.querySelectorAll('#dataTabs .tab').forEach((tab, i) => {
+                tab.classList.toggle('active', types[i] === type);
+            });
+        }
+
+        // Initialize on load
+        init();
+    </script>
+</body>
+</html>
