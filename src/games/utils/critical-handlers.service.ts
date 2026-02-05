@@ -138,6 +138,18 @@ export class CriticalHandlersService {
       };
     }
 
+    if (gameCode === games.WHEEL.GAME_CODE) {
+      return {
+        betConfig: games.WHEEL.BET_CONFIG,
+        coefficients: games.WHEEL.MULTIPLIERS,
+        LAST_WIN: {
+          DEFAULT_USERNAME: games.WHEEL.LAST_WIN.DEFAULT_USERNAME,
+          DEFAULT_WIN_AMOUNT: games.WHEEL.LAST_WIN.DEFAULT_WIN_AMOUNT,
+          DEFAULT_CURRENCY: games.WHEEL.LAST_WIN.DEFAULT_CURRENCY,
+        },
+      };
+    }
+
     return null;
   }
 }

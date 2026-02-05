@@ -184,6 +184,105 @@ const GAMES_CONFIG = {
     ERROR_MESSAGES: {},
   },
 
+  // Wheel Game
+  WHEEL: {
+    // Game Identity
+    GAME_CODE: 'wheel',
+    GAME_NAME: 'Wheel',
+    PLATFORM: 'In-out',
+    GAME_TYPE: 'WHEEL',
+
+    // RTP Configuration
+    RTP: 94,
+
+    // Bet Configuration
+    BET_CONFIG: {
+      minBetAmount: '0.01',
+      maxBetAmount: '200.00',
+      maxWinAmount: '20000.00',
+      defaultBetAmount: '0.08',
+      betPresets: ['0.5', '1', '2', '7'],
+      decimalPlaces: '2',
+      currency: 'USD',
+    },
+
+    // Bet Ranges per Currency
+    BET_RANGES: {
+      USD: ['0.01', '200.00'],
+    },
+
+    // Default Currency
+    DEFAULT_CURRENCY: 'USD',
+
+    // Game Payloads Configuration (for WalletService integration)
+    GAME_PAYLOADS: {
+      GAME_TYPE: 'WHEEL',
+      PLATFORM: 'In-out',
+      SETTLE_TYPE: 'platformTxId',
+    },
+
+    // Wheel Game Constants
+    GAME: {
+      TOTAL_SEGMENTS: 53,
+      WAIT_TIME_MS: 10000,
+      SPIN_TIME_MS: 2600,
+      RESULT_DISPLAY_TIME_MS: 5000,
+      BET_LIST_BROADCAST_INTERVAL_MS: 1500,
+      LEADER_LEASE_TTL: 30,
+      LEADER_RENEW_INTERVAL_MS: 15000,
+      BET_HISTORY_LIMIT: 30,
+      BET_HISTORY_DAYS: 7,
+      PREV_ROUND_RESULTS_LIMIT: 20,
+    },
+
+    // Color multipliers
+    MULTIPLIERS: {
+      BLACK: 2,
+      RED: 3,
+      BLUE: 5,
+      GREEN: 50,
+    } as Record<string, number>,
+
+    // Wheel segment layout (53 segments, indices 0-52)
+    // Each entry is the color at that segment index
+    WHEEL_SEGMENTS: [
+      'GREEN', 'BLUE',  'RED',   'BLACK', 'BLUE',  'BLACK', 'RED',   'BLACK',
+      'BLUE',  'BLACK', 'RED',   'BLACK', 'RED',   'BLACK', 'BLUE',  'BLACK',
+      'RED',   'BLACK', 'RED',   'BLACK', 'BLUE',  'BLACK', 'RED',   'BLACK',
+      'RED',   'BLACK', 'BLUE',  'GREEN', 'RED',   'BLACK', 'RED',   'BLACK',
+      'RED',   'BLACK', 'RED',   'BLACK', 'RED',   'BLACK', 'BLUE',  'BLACK',
+      'RED',   'BLACK', 'RED',   'BLACK', 'BLUE',  'BLACK', 'RED',   'BLACK',
+      'RED',   'BLACK', 'BLUE',  'BLACK', 'RED',
+    ] as string[],
+
+    // Last Win Configuration
+    LAST_WIN: {
+      DEFAULT_USERNAME: 'Lucky Spinner',
+      DEFAULT_WIN_AMOUNT: '100.00',
+      DEFAULT_CURRENCY: 'USD',
+      FALLBACK_USERNAME: 'UNKNOWN',
+      FALLBACK_WIN_AMOUNT: '0',
+      FALLBACK_CURRENCY: 'USD',
+    },
+
+    // Fairness Configuration
+    FAIRNESS: {
+      LEGACY_CLIENT_SEED: 'a7b3c9d5e1f28064',
+      CLIENT_SEED_LENGTH: 16,
+    },
+
+    // Frontend Configuration
+    FRONTEND: {
+      DEFAULT_HOST: 'gscr.wheel.live',
+    },
+
+    // Error Messages
+    ERROR_MESSAGES: {
+      INVALID_COLOR: 'invalid_color',
+      ROUND_NOT_ACTIVE: 'round_not_active',
+    },
+  },
+
   // Chicken Road Game
   CHICKEN_ROAD: {
     // Game Identity
@@ -347,6 +446,7 @@ export const DEFAULTS = {
   // Game-specific aliases (for backward compatibility)
   SUGAR_DADDY: GAMES_CONFIG.SUGAR_DADDY,
   DIVER: GAMES_CONFIG.DIVER,
+  WHEEL: GAMES_CONFIG.WHEEL,
   CHICKEN_ROAD: GAMES_CONFIG.CHICKEN_ROAD,
 
   // Legacy aliases (for Chicken Road - will be deprecated)
@@ -366,4 +466,5 @@ export type PlatformConfig = typeof PLATFORM_CONFIG;
 export type GamesConfig = typeof GAMES_CONFIG;
 export type SugarDaddyConfig = typeof GAMES_CONFIG.SUGAR_DADDY;
 export type DiverConfig = typeof GAMES_CONFIG.DIVER;
+export type WheelConfig = typeof GAMES_CONFIG.WHEEL;
 export type ChickenRoadConfig = typeof GAMES_CONFIG.CHICKEN_ROAD;

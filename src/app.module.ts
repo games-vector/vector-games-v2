@@ -26,6 +26,7 @@ import { CommonGameGateway } from './gateway/common-game.gateway';
 import { SugarDaddyGameModule } from './games/sugar-daddy-game/sugar-daddy-game.module';
 import { DiverGameModule } from './games/diver-game/diver-game.module';
 import { ChickenRoadGameModule } from './games/chicken-road-game/chicken-road-game.module';
+import { WheelGameModule } from './games/wheel-game/wheel-game.module';
 import { CommonApiFunctionsModule } from './routes/common-api-functions/common-api-functions.module';
 import { GameApiRoutesModule } from './routes/game-api-routes/game-api-routes.module';
 import { BetCleanupSchedulerModule } from './modules/bet-cleanup/bet-cleanup-scheduler.module';
@@ -157,6 +158,7 @@ import { WalletNotificationModule } from './modules/wallet-notification/wallet-n
     SugarDaddyGameModule, // Depends on GamesModule (GameDispatcherService)
     // DiverGameModule, // Depends on GamesModule (GameDispatcherService)
     ChickenRoadGameModule, // Depends on GamesModule (GameDispatcherService)
+    WheelGameModule, // Wheel color-betting game
     // API Routes
     CommonApiFunctionsModule, // /wallet/* endpoints (createMember, login, doLoginAndLaunchGame, logout)
     GameApiRoutesModule, // /api/* endpoints (auth, games, online-counter)
