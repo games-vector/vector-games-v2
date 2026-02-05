@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { BetService } from '@games-vector/game-core';
 import { WalletService } from '@games-vector/game-core';
 
-import { BetPayloadDto, CoinChoice, PlayMode } from './DTO/bet-payload.dto';
+import { BetPayloadDto, PlayMode } from './DTO/bet-payload.dto';
 import { StepPayloadDto } from './DTO/step-payload.dto';
 import { CoinFlipFairnessService } from './modules/fairness/fairness.service';
 import { RedisService } from '../../modules/redis/redis.service';
@@ -83,6 +83,8 @@ export class CoinFlipGameService {
     lastWin: { username: string; winAmount: string; currency: string };
   }> {
     try {
+      // Fetch config from DB table: game_config_coinflip (keys: 'betConfig', 'coefficients')
+      // Falls back to DEFAULTS if table/keys don't exist
       const betConfigRaw = await this.safeGetConfig(gameCode, 'betConfig');
       const coeffRaw = await this.safeGetConfig(gameCode, 'coefficients');
       const betConfig = this.tryParseJson(betConfigRaw) || {};
