@@ -230,6 +230,36 @@ LOCK TABLES `user` WRITE;
 INSERT INTO `user` VALUES ('ajd180nkmwqzrcjzeojg','brlag','INR','EN','ajd180nkmwqzrcjzeojg','1000.00',NULL,NULL,'2026-01-26 13:05:57.289726','2026-01-26 13:05:57.289726',NULL,NULL),('sxxurczuleogz19epayf','brlag','INR','EN','sxxurczuleogz19epayf','1000.00',NULL,NULL,'2026-01-26 13:06:49.449151','2026-01-26 13:06:49.449151',NULL,NULL),('ztj130cdajnmodugtbtk','brlag','INR','en','ztj130cdajnmodugtbtk','10000.00',NULL,NULL,'2026-01-22 17:27:04.181878','2026-01-22 17:27:04.181878',NULL,NULL);
 /*!40000 ALTER TABLE `user` ENABLE KEYS */;
 UNLOCK TABLES;
+--
+-- Add wheel game to games table
+--
+
+INSERT INTO `games` VALUES ('c7a2e4f1-8b3d-4f5c-9e1a-6d2b7c8f3e5a','wheel','Wheel','In-out','WHEEL','platformTxId',1,'2026-02-06 00:00:00.000000','2026-02-06 00:00:00.000000',NULL,NULL);
+
+--
+-- Table structure for table `game_config_wheel`
+--
+
+CREATE TABLE IF NOT EXISTS `game_config_wheel` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `key` varchar(255) NOT NULL,
+  `value` text,
+  `updatedAt` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `key` (`key`),
+  KEY `idx_key` (`key`)
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+--
+-- Dumping data for table `game_config_wheel`
+--
+
+LOCK TABLES `game_config_wheel` WRITE;
+/*!40000 ALTER TABLE `game_config_wheel` DISABLE KEYS */;
+INSERT INTO `game_config_wheel` VALUES (1,'betConfig','{"minBetAmount":"0.01","maxBetAmount":"200.00","maxWinAmount":"20000.00","defaultBetAmount":"0.08","betPresets":["0.5","1","2","7"],"decimalPlaces":"2","currency":"USD"}','2026-02-06 00:00:00'),(2,'game.payloads','{"gameCode":"wheel","gameName":"Wheel","platform":"In-out","gameType":"WHEEL","settleType":"platformTxId"}','2026-02-06 00:00:00'),(3,'frontend.host','gscr.wheel.live','2026-02-06 00:00:00');
+/*!40000 ALTER TABLE `game_config_wheel` ENABLE KEYS */;
+UNLOCK TABLES;
+
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
