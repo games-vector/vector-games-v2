@@ -138,6 +138,13 @@ export class CriticalHandlersService {
       };
     }
 
+    if (gameCode === games.COINFLIP.GAME_CODE) {
+      return {
+        betConfig: games.COINFLIP.BET_CONFIG,
+        LAST_WIN: games.COINFLIP.LAST_WIN,
+      };
+    }
+
     return null;
   }
 }

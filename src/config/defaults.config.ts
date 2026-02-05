@@ -184,6 +184,89 @@ const GAMES_CONFIG = {
     ERROR_MESSAGES: {},
   },
 
+  // CoinFlip Game
+  COINFLIP: {
+    // Game Identity
+    GAME_CODE: 'coinflip',
+    GAME_NAME: 'CoinFlip',
+    PLATFORM: 'In-out',
+    GAME_TYPE: 'CRASH',
+
+    // Redis Configuration
+    REDIS_KEY: 'coinflip:session:',
+    SESSION_TTL: 3600, // 1 hour in seconds
+
+    // Game Constants
+    MAX_ROUNDS: 20,
+    BASE_MULTIPLIER: 1.94,
+
+    // Multipliers for each round (1-20)
+    MULTIPLIERS: [
+      '1.94', '3.88', '7.76', '15.52', '31.04',
+      '62.08', '124.16', '248.32', '496.64', '993.28',
+      '1986.56', '3973.12', '7946.24', '15892.48', '31784.96',
+      '63569.92', '127139.84', '254279.68', '508559.36', '1017118.72'
+    ],
+
+    // Bet Configuration
+    BET_CONFIG: {
+      minBetAmount: '0.01',
+      maxBetAmount: '200.00',
+      maxWinAmount: '20000.00',
+      defaultBetAmount: '0.30',
+      betPresets: ['0.5', '1', '2', '7'],
+      decimalPlaces: '2',
+      currency: 'INR',
+    },
+
+    // Bet Ranges per Currency
+    BET_RANGES: {
+      INR: ['0.01', '200.00'],
+    },
+
+    // Game Payloads Configuration (for WalletService integration)
+    GAME_PAYLOADS: {
+      GAME_TYPE: 'CRASH',
+      PLATFORM: 'In-out',
+      SETTLE_TYPE: 'platformTxId',
+    },
+
+    // Game Runtime Configuration
+    GAME: {
+      DECIMAL_PLACES: 2,
+      PLATFORM_NAME: 'In-out',
+      GAME_TYPE: 'CRASH',
+      SETTLEMENT_AMOUNT_ZERO: 0.0,
+      BET_HISTORY_LIMIT: 30,
+      BET_HISTORY_DAYS: 7,
+      DEFAULT_COEFF: '1',
+      DEFAULT_MULTIPLIER: 1,
+    },
+
+    // Last Win Configuration
+    LAST_WIN: {
+      DEFAULT_USERNAME: 'Lucky Player',
+      DEFAULT_WIN_AMOUNT: '100.00',
+      DEFAULT_CURRENCY: 'INR',
+      FALLBACK_USERNAME: 'UNKNOWN',
+      FALLBACK_WIN_AMOUNT: '0',
+      FALLBACK_CURRENCY: 'INR',
+    },
+
+    // Fairness Configuration
+    FAIRNESS: {
+      CLIENT_SEED_LENGTH: 16,
+    },
+
+    // Error Messages
+    ERROR_MESSAGES: {
+      INVALID_CHOICE: 'invalid_choice',
+      INVALID_PLAY_MODE: 'invalid_play_mode',
+      INVALID_ROUND_NUMBER: 'invalid_round_number',
+      CASHOUT_FAILED: 'cashout_failed',
+    },
+  },
+
   // Chicken Road Game
   CHICKEN_ROAD: {
     // Game Identity
@@ -347,6 +430,7 @@ export const DEFAULTS = {
   // Game-specific aliases (for backward compatibility)
   SUGAR_DADDY: GAMES_CONFIG.SUGAR_DADDY,
   DIVER: GAMES_CONFIG.DIVER,
+  COINFLIP: GAMES_CONFIG.COINFLIP,
   CHICKEN_ROAD: GAMES_CONFIG.CHICKEN_ROAD,
 
   // Legacy aliases (for Chicken Road - will be deprecated)
@@ -366,4 +450,5 @@ export type PlatformConfig = typeof PLATFORM_CONFIG;
 export type GamesConfig = typeof GAMES_CONFIG;
 export type SugarDaddyConfig = typeof GAMES_CONFIG.SUGAR_DADDY;
 export type DiverConfig = typeof GAMES_CONFIG.DIVER;
+export type CoinFlipConfig = typeof GAMES_CONFIG.COINFLIP;
 export type ChickenRoadConfig = typeof GAMES_CONFIG.CHICKEN_ROAD;
