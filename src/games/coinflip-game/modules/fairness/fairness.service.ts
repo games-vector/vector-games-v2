@@ -24,7 +24,7 @@ export interface CoinFlipFairnessProof {
 @Injectable()
 export class CoinFlipFairnessService {
   private readonly logger = new Logger(CoinFlipFairnessService.name);
-  private readonly FAIRNESS_TTL = 7 * 24 * 60 * 60; // 7 days in seconds
+  private readonly FAIRNESS_TTL = 24 * 60 * 60; // 1 day in seconds
 
   constructor(private readonly redisService: RedisService) {}
 
