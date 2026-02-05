@@ -6,10 +6,13 @@
 # This script starts both the backend API and frontend UI for the CoinFlip game.
 #
 # Usage:
-#   ./start-coinflip.sh           # Start both backend and frontend
-#   ./start-coinflip.sh --backend # Start only backend
-#   ./start-coinflip.sh --frontend # Start only frontend (assumes backend running)
-#   ./start-coinflip.sh --setup   # Only setup database, don't start services
+#   ./start-coinflip.sh                        # Start with default userId (prompts for input)
+#   ./start-coinflip.sh --userId=<id>          # Start with specific userId
+#   ./start-coinflip.sh --backend              # Start only backend
+#   ./start-coinflip.sh --frontend             # Start only frontend (assumes backend running)
+#   ./start-coinflip.sh --setup                # Only setup database, don't start services
+#
+# Default User ID: sxxurczuleogz19epayf
 #
 # Prerequisites:
 #   - MySQL running on localhost:3306
@@ -34,6 +37,9 @@ FRONTEND_PORT=8080
 DB_NAME="vectorgames"
 DUMP_FILE="$SCRIPT_DIR/dump/dump-stage.sql"
 
+# User ID - will be set via input or argument
+COINFLIP_USER_ID=""
+
 # Parse arguments
 START_BACKEND=true
 START_FRONTEND=true
@@ -52,12 +58,32 @@ for arg in "$@"; do
             START_BACKEND=false
             START_FRONTEND=false
             ;;
+        --userId=*)
+            COINFLIP_USER_ID="${arg#*=}"
+            ;;
     esac
 done
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}   CoinFlip Game Launcher${NC}"
 echo -e "${BLUE}========================================${NC}"
+
+# Default User ID
+DEFAULT_USER_ID="sxxurczuleogz19epayf"
+
+# Prompt for userId if not provided via argument
+if [ -z "$COINFLIP_USER_ID" ]; then
+    echo ""
+    echo -e "${YELLOW}Enter User ID (press Enter for default: ${DEFAULT_USER_ID}):${NC}"
+    read -p "> " COINFLIP_USER_ID
+
+    # Use default if empty
+    if [ -z "$COINFLIP_USER_ID" ]; then
+        COINFLIP_USER_ID="$DEFAULT_USER_ID"
+    fi
+fi
+
+echo -e "\n${GREEN}Using User ID: $COINFLIP_USER_ID${NC}"
 
 # Function to check if a command exists
 command_exists() {
@@ -288,7 +314,9 @@ echo -e "${GREEN}========================================${NC}"
 echo ""
 if [ "$START_FRONTEND" = true ]; then
     echo -e "${BLUE}Open in browser:${NC}"
-    echo -e "  ${GREEN}http://localhost:$FRONTEND_PORT${NC}"
+    echo -e "  ${GREEN}http://localhost:$FRONTEND_PORT?userId=$COINFLIP_USER_ID${NC}"
+    echo ""
+    echo -e "${BLUE}User ID:${NC} $COINFLIP_USER_ID"
     echo ""
 fi
 if [ "$START_BACKEND" = true ]; then
