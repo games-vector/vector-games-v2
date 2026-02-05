@@ -28,14 +28,15 @@
 
 The Wheel game is a multiplayer betting game where players bet on which color segment a spinning wheel will land on. The wheel has 4 color categories, each with a different payout multiplier:
 
-| Color | Multiplier | UI Color Code | Approximate Probability |
-|-------|-----------|---------------|------------------------|
-| BLACK (Gray) | x2 | Gray/Dark | ~48% (25 segments) |
-| RED | x3 | Red | ~27% (14 segments) |
-| BLUE | x5 | Blue | ~19% (10 segments) |
-| GREEN | x50 | Green | ~4% (2 segments) |
+| Color        | Multiplier | UI Color Code | Approximate Probability |
+| ------------ | ---------- | ------------- | ----------------------- |
+| BLACK (Gray) | x2         | Gray/Dark     | ~48% (25 segments)      |
+| RED          | x3         | Red           | ~27% (14 segments)      |
+| BLUE         | x5         | Blue          | ~19% (10 segments)      |
+| GREEN        | x50        | Green         | ~4% (2 segments)        |
 
 **Key Characteristics:**
+
 - Rounds are server-driven with fixed timing (~15s total per round)
 - All players participate in the same round simultaneously
 - Multiple bets on the same color are allowed (additive)
@@ -48,12 +49,14 @@ The Wheel game is a multiplayer betting game where players bet on which color se
 ## 2. Game Mechanics & Rules
 
 ### How to Play (Official)
+
 1. Enter the bet amount
 2. Choose the color to bet on: gray (BLACK), red, blue, green
 3. Click the "Play" button
 4. Malfunction voids all pays and plays
 
 ### Betting Rules
+
 - **Minimum bet:** Configurable per currency (e.g., $0.01 USD)
 - **Maximum bet:** Configurable per currency (e.g., $200.00 USD)
 - **Maximum win:** Configurable per currency (e.g., $20,000.00 USD)
@@ -64,11 +67,13 @@ The Wheel game is a multiplayer betting game where players bet on which color se
 - Bets placed during FINISH_GAME phase are automatically queued for the NEXT round (`isNextRoundBet: true`)
 
 ### Payout Calculation
+
 - **Win:** `betAmount * multiplier` (e.g., $1 on RED wins $3 total, net profit $2)
 - **Loss:** Player loses their entire bet amount
 - No partial payouts
 
 ### Round Timing
+
 - **WAIT_GAME:** ~10 seconds (betting window)
 - **IN_GAME:** ~2.5 seconds (wheel spinning)
 - **FINISH_GAME:** ~5 seconds (result display, win animations)
@@ -79,6 +84,7 @@ The Wheel game is a multiplayer betting game where players bet on which color se
 ## 3. UI Components & Layout
 
 ### Header Bar (Top)
+
 - **Game Logo:** "WHEEL" with colored segments icon (top-left)
 - **How to play?** button (top-right)
 - **Balance display:** Current balance with currency symbol (top-right)
@@ -94,6 +100,7 @@ The Wheel game is a multiplayer betting game where players bet on which color se
   - "Powered by" branding
 
 ### Left Panel - Betting Controls
+
 - **Bet Amount Section:**
   - MIN button (sets to minimum bet)
   - Amount input field (editable text)
@@ -108,6 +115,7 @@ The Wheel game is a multiplayer betting game where players bet on which color se
 - **Play Button:** Large green button to place/confirm bet
 
 ### Center - Wheel Area
+
 - **Previous Results Strip:** Horizontal strip of colored squares showing recent round results (top)
 - **Wheel Graphic:** Semi-circular wheel with colored segments
   - Yellow arrow/pointer at top center
@@ -119,13 +127,16 @@ The Wheel game is a multiplayer betting game where players bet on which color se
 - **Round ID:** Displayed below the wheel (right-aligned)
 
 ### Bottom Panel - Bet Lists
+
 Four columns showing current round's bets grouped by color:
+
 - **Rate x2** (gray header) - BLACK bets
 - **Rate x3** (red header) - RED bets
 - **Rate x5** (blue header) - BLUE bets
 - **Rate x50** (green header) - GREEN bets
 
 Each column shows:
+
 - Player avatar icon (with color indicator)
 - Player nickname (truncated if long)
 - Bet amount with currency symbol
@@ -134,27 +145,27 @@ Each column shows:
 
 ## 4. User Interactions
 
-| # | Interaction | UI Element | Effect |
-|---|------------|------------|--------|
-| 1 | Click MIN button | `MIN` button | Sets bet amount to minimum (e.g., 0.01) |
-| 2 | Click MAX button | `MAX` button | Sets bet amount to maximum (e.g., 200.00) |
-| 3 | Click preset amount | `0.5`, `1`, `2`, `7` buttons | Sets bet amount to preset value |
-| 4 | Type bet amount | Amount input field | Manually enter custom bet amount |
-| 5 | Select color x2 | `x2` button | Select BLACK/gray color for bet |
-| 6 | Select color x3 | `x3` button | Select RED color for bet |
-| 7 | Select color x5 | `x5` button | Select BLUE color for bet |
-| 8 | Select color x50 | `x50` button | Select GREEN color for bet |
-| 9 | Click Play | `Play` button | Place bet (or add to existing bet on same color) |
-| 10 | Click Play again | `Play` button | Place additional bet on same color (stacks) |
-| 11 | Click How to play? | Top bar button | Opens rules modal |
-| 12 | Click hamburger menu | Top-right icon | Opens sidebar menu |
-| 13 | Click My bet history | Menu item | Shows personal bet history |
-| 14 | Click Provably fair | Menu item | Opens provably fair verification |
-| 15 | Click Game rules | Menu item | Opens detailed game rules |
-| 16 | Toggle Sound | Menu toggle | Enable/disable sound effects |
-| 17 | Toggle Music | Menu toggle | Enable/disable background music |
-| 18 | Click Change avatar | Menu item | Opens avatar selection |
-| 19 | Click Fullscreen | Top bar icon | Toggles fullscreen mode |
+| #   | Interaction          | UI Element                   | Effect                                           |
+| --- | -------------------- | ---------------------------- | ------------------------------------------------ |
+| 1   | Click MIN button     | `MIN` button                 | Sets bet amount to minimum (e.g., 0.01)          |
+| 2   | Click MAX button     | `MAX` button                 | Sets bet amount to maximum (e.g., 200.00)        |
+| 3   | Click preset amount  | `0.5`, `1`, `2`, `7` buttons | Sets bet amount to preset value                  |
+| 4   | Type bet amount      | Amount input field           | Manually enter custom bet amount                 |
+| 5   | Select color x2      | `x2` button                  | Select BLACK/gray color for bet                  |
+| 6   | Select color x3      | `x3` button                  | Select RED color for bet                         |
+| 7   | Select color x5      | `x5` button                  | Select BLUE color for bet                        |
+| 8   | Select color x50     | `x50` button                 | Select GREEN color for bet                       |
+| 9   | Click Play           | `Play` button                | Place bet (or add to existing bet on same color) |
+| 10  | Click Play again     | `Play` button                | Place additional bet on same color (stacks)      |
+| 11  | Click How to play?   | Top bar button               | Opens rules modal                                |
+| 12  | Click hamburger menu | Top-right icon               | Opens sidebar menu                               |
+| 13  | Click My bet history | Menu item                    | Shows personal bet history                       |
+| 14  | Click Provably fair  | Menu item                    | Opens provably fair verification                 |
+| 15  | Click Game rules     | Menu item                    | Opens detailed game rules                        |
+| 16  | Toggle Sound         | Menu toggle                  | Enable/disable sound effects                     |
+| 17  | Toggle Music         | Menu toggle                  | Enable/disable background music                  |
+| 18  | Click Change avatar  | Menu item                    | Opens avatar selection                           |
+| 19  | Click Fullscreen     | Top bar icon                 | Toggles fullscreen mode                          |
 
 ---
 
@@ -178,34 +189,39 @@ Each column shows:
 ### State Transitions (Server-Driven)
 
 **WAIT_GAME → IN_GAME:**
+
 ```json
 {
-  "status": "IN_GAME",
-  "nextChangeInMs": 2610,
-  "cellIndex": 2,
-  "cellColor": "RED",
-  "inCellOffset": 0.413
+	"status": "IN_GAME",
+	"nextChangeInMs": 2610,
+	"cellIndex": 2,
+	"cellColor": "RED",
+	"inCellOffset": 0.413
 }
 ```
+
 - `cellIndex`: The wheel position where it will stop (0-52)
 - `cellColor`: The winning color
 - `inCellOffset`: Precise position within the cell (0-1 float, for animation accuracy)
 - `nextChangeInMs`: Time until transition to FINISH_GAME
 
 **IN_GAME → FINISH_GAME:**
+
 ```json
 {
-  "status": "FINISH_GAME",
-  "nextChangeInMs": 4997,
-  "cellIndex": 2,
-  "cellColor": "RED",
-  "inCellOffset": 0.413
+	"status": "FINISH_GAME",
+	"nextChangeInMs": 4997,
+	"cellIndex": 2,
+	"cellColor": "RED",
+	"inCellOffset": 0.413
 }
 ```
+
 - Same cell data repeated for confirmation
 - `nextChangeInMs`: Time until transition to WAIT_GAME
 
 **FINISH_GAME → WAIT_GAME:**
+
 ```json
 {
   "status": "WAIT_GAME",
@@ -219,6 +235,7 @@ Each column shows:
   ]
 }
 ```
+
 - `gameId`: New round identifier (incrementing integer)
 - `nextChangeInMs`: Time until IN_GAME starts
 - `prevRoundResults`: Array of recent round results (newest first), used for the results strip at top
@@ -230,6 +247,7 @@ Each column shows:
 ### Step 1: HTTP Authentication
 
 **Request:**
+
 ```
 POST https://api.inout.games/api/auth
 Content-Type: application/json
@@ -243,59 +261,64 @@ Content-Type: application/json
 ```
 
 **Response (201 Created):**
+
 ```json
 {
-  "success": true,
-  "result": "<JWT_TOKEN>",
-  "data": "<JWT_TOKEN>",
-  "gameConfig": null,
-  "bonuses": [],
-  "isLobbyEnabled": false,
-  "isPromoCodeEnabled": false,
-  "isSoundEnabled": false,
-  "isMusicEnabled": false
+	"success": true,
+	"result": "<JWT_TOKEN>",
+	"data": "<JWT_TOKEN>",
+	"gameConfig": null,
+	"bonuses": [],
+	"isLobbyEnabled": false,
+	"isPromoCodeEnabled": false,
+	"isSoundEnabled": false,
+	"isMusicEnabled": false
 }
 ```
 
 **JWT Token Payload (decoded):**
+
 ```json
 {
-  "userId": "1c8db1d9-5a39-419a-afe9-c35ebdd887bb",
-  "nickname": "Apricot Absent Bee",
-  "balance": "1000000",
-  "currency": "USD",
-  "operator": "ee2013ed-e1f0-4d6e-97d2-f36619e2eb52",
-  "operatorId": "ee2013ed-e1f0-4d6e-97d2-f36619e2eb52",
-  "gameMode": "wheel",
-  "meta": null,
-  "gameAvatar": null,
-  "sessionToken": "yl24el",
-  "iat": 1770319563,
-  "exp": 1770405963
+	"userId": "1c8db1d9-5a39-419a-afe9-c35ebdd887bb",
+	"nickname": "Apricot Absent Bee",
+	"balance": "1000000",
+	"currency": "USD",
+	"operator": "ee2013ed-e1f0-4d6e-97d2-f36619e2eb52",
+	"operatorId": "ee2013ed-e1f0-4d6e-97d2-f36619e2eb52",
+	"gameMode": "wheel",
+	"meta": null,
+	"gameAvatar": null,
+	"sessionToken": "yl24el",
+	"iat": 1770319563,
+	"exp": 1770405963
 }
 ```
 
 ### Step 2: WebSocket Connection
+
 After HTTP auth, client establishes WebSocket to `wss://api.inout.games:443/io/` using Socket.IO protocol.
 The JWT token is passed during Socket.IO handshake (as auth parameter).
 
 ### URL Parameters (Game Launch)
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `gameMode` | Game type identifier | `wheel` |
-| `operatorId` | Operator/platform UUID | `ee2013ed-...` |
-| `authToken` | One-time auth token | `ea05e675-...` |
-| `currency` | Player's currency code | `USD` |
-| `lang` | Language code | `en` |
-| `theme` | UI theme (optional) | `` |
-| `gameCustomizationId` | Custom config ID (optional) | `` |
-| `lobbyUrl` | Redirect URL for lobby (optional) | `` |
+
+| Parameter             | Description                       | Example        |
+| --------------------- | --------------------------------- | -------------- |
+| `gameMode`            | Game type identifier              | `wheel`        |
+| `operatorId`          | Operator/platform UUID            | `ee2013ed-...` |
+| `authToken`           | One-time auth token               | `ea05e675-...` |
+| `currency`            | Player's currency code            | `USD`          |
+| `lang`                | Language code                     | `en`           |
+| `theme`               | UI theme (optional)               | ``             |
+| `gameCustomizationId` | Custom config ID (optional)       | ``             |
+| `lobbyUrl`            | Redirect URL for lobby (optional) | ``             |
 
 ---
 
 ## 7. Socket Connection & Protocol
 
 ### Transport
+
 - **Protocol:** Socket.IO v4 over Engine.IO
 - **WebSocket URL:** `wss://api.inout.games:443/io/`
 - **Upgrades:** None (direct WebSocket, no polling fallback)
@@ -304,7 +327,9 @@ The JWT token is passed during Socket.IO handshake (as auth parameter).
 - **Max Payload:** 1,000,000 bytes
 
 ### Socket.IO Message Format
+
 Socket.IO uses a numeric prefix system:
+
 - `0{...}` - Engine.IO OPEN (server → client)
 - `2` - Engine.IO PING (server → client)
 - `3` - Engine.IO PONG (client → server)
@@ -314,6 +339,7 @@ Socket.IO uses a numeric prefix system:
 - `43X[data]` - Socket.IO ACK response for ack ID `X`
 
 ### Namespace
+
 Default namespace `/` is used (no custom namespace).
 
 ---
@@ -323,49 +349,71 @@ Default namespace `/` is used (no custom namespace).
 ### 8.1 Server → Client Events (IN)
 
 #### `onBalanceChange`
+
 Sent whenever player's balance changes (bet placed, win payout).
+
 ```json
-["onBalanceChange", {
-  "currency": "USD",
-  "balance": "999999.92"
-}]
+[
+	"onBalanceChange",
+	{
+		"currency": "USD",
+		"balance": "999999.92"
+	}
+]
 ```
 
 #### `betsRanges`
+
 Sent once during initialization. Defines min/max bet per currency.
+
 ```json
-["betsRanges", {
-  "USD": ["0.01", "200.00"]
-}]
+[
+	"betsRanges",
+	{
+		"USD": ["0.01", "200.00"]
+	}
+]
 ```
 
 #### `betsConfig`
+
 Sent once during initialization. Full betting configuration.
+
 ```json
-["betsConfig", {
-  "USD": {
-    "betPresets": ["0.5", "1", "2", "7"],
-    "minBetAmount": "0.01",
-    "maxBetAmount": "200.00",
-    "maxWinAmount": "20000.00",
-    "defaultBetAmount": "0.080000000000000000",
-    "decimalPlaces": null
-  }
-}]
+[
+	"betsConfig",
+	{
+		"USD": {
+			"betPresets": ["0.5", "1", "2", "7"],
+			"minBetAmount": "0.01",
+			"maxBetAmount": "200.00",
+			"maxWinAmount": "20000.00",
+			"defaultBetAmount": "0.080000000000000000",
+			"decimalPlaces": null
+		}
+	}
+]
 ```
 
 #### `myData`
+
 Sent once during initialization. Player profile data.
+
 ```json
-["myData", {
-  "userId": "1c8db1d9-5a39-419a-afe9-c35ebdd887bb",
-  "nickname": "Apricot Absent Bee",
-  "gameAvatar": null
-}]
+[
+	"myData",
+	{
+		"userId": "1c8db1d9-5a39-419a-afe9-c35ebdd887bb",
+		"nickname": "Apricot Absent Bee",
+		"gameAvatar": null
+	}
+]
 ```
 
 #### `currencies`
+
 Sent once during initialization. Exchange rates for all supported currencies relative to USD.
+
 ```json
 ["currencies", {
   "ADA": 3.807,
@@ -379,47 +427,62 @@ Sent once during initialization. Exchange rates for all supported currencies rel
 ```
 
 #### `gameService-game-status-changed`
+
 Core game lifecycle event. Sent at each state transition.
 
 **WAIT_GAME (new round starts):**
+
 ```json
-["gameService-game-status-changed", {
-  "status": "WAIT_GAME",
-  "nextChangeInMs": 9938,
-  "gameId": 3597026,
-  "prevRoundResults": [
-    {"cellIndex": 36, "cellColor": "RED"},
-    {"cellIndex": 14, "cellColor": "BLUE"},
-    {"cellIndex": 26, "cellColor": "BLUE"},
-    {"cellIndex": 2, "cellColor": "RED"}
-  ]
-}]
+[
+	"gameService-game-status-changed",
+	{
+		"status": "WAIT_GAME",
+		"nextChangeInMs": 9938,
+		"gameId": 3597026,
+		"prevRoundResults": [
+			{ "cellIndex": 36, "cellColor": "RED" },
+			{ "cellIndex": 14, "cellColor": "BLUE" },
+			{ "cellIndex": 26, "cellColor": "BLUE" },
+			{ "cellIndex": 2, "cellColor": "RED" }
+		]
+	}
+]
 ```
 
 **IN_GAME (wheel starts spinning):**
+
 ```json
-["gameService-game-status-changed", {
-  "status": "IN_GAME",
-  "nextChangeInMs": 2610,
-  "cellIndex": 2,
-  "cellColor": "RED",
-  "inCellOffset": 0.413
-}]
+[
+	"gameService-game-status-changed",
+	{
+		"status": "IN_GAME",
+		"nextChangeInMs": 2610,
+		"cellIndex": 2,
+		"cellColor": "RED",
+		"inCellOffset": 0.413
+	}
+]
 ```
 
 **FINISH_GAME (result shown):**
+
 ```json
-["gameService-game-status-changed", {
-  "status": "FINISH_GAME",
-  "nextChangeInMs": 4997,
-  "cellIndex": 2,
-  "cellColor": "RED",
-  "inCellOffset": 0.413
-}]
+[
+	"gameService-game-status-changed",
+	{
+		"status": "FINISH_GAME",
+		"nextChangeInMs": 4997,
+		"cellIndex": 2,
+		"cellColor": "RED",
+		"inCellOffset": 0.413
+	}
+]
 ```
 
 #### `gameService-bet-list-updated`
+
 Broadcast frequently during WAIT_GAME. Contains ALL current bets grouped by color.
+
 ```json
 ["gameService-bet-list-updated", {
   "sumInUSD": 253.78,
@@ -446,28 +509,41 @@ Broadcast frequently during WAIT_GAME. Contains ALL current bets grouped by colo
 ```
 
 #### `gameService-withdraw-result`
+
 Sent ONLY to winning players after FINISH_GAME.
+
 ```json
-["gameService-withdraw-result", {
-  "currency": "USD",
-  "winAmount": "3",
-  "winCoeff": 3
-}]
+[
+	"gameService-withdraw-result",
+	{
+		"currency": "USD",
+		"winAmount": "3",
+		"winCoeff": 3
+	}
+]
 ```
+
 **Note:** This event is NOT sent on loss. On loss, only the bet-list-updated for next round comes.
 
 #### `gameService-exception`
+
 Sent when a game action fails (e.g., invalid bet, insufficient balance).
+
 ```json
-["gameService-exception", {
-  "message": "error description"
-}]
+[
+	"gameService-exception",
+	{
+		"message": "error description"
+	}
+]
 ```
 
 #### `gameService-my-bets-history`
+
 Response to get-my-bets-history request. Contains player's past bets.
 
 #### `gameService-game-seeds` / `gameService-onGameSeeds`
+
 Provably fair seed information for game verification.
 
 ### 8.2 Client → Server Events (OUT)
@@ -475,21 +551,33 @@ Provably fair seed information for game verification.
 All client events use the `gameService` event name with an `action` field:
 
 #### `get-game-config`
+
 Sent once after connection. Requests game configuration.
+
 ```json
-["gameService", {
-  "action": "get-game-config"
-}]
+[
+	"gameService",
+	{
+		"action": "get-game-config"
+	}
+]
 ```
 
 #### `get-game-state`
+
 Sent once after connection. Requests current game state.
+
 ```json
-["gameService", {
-  "action": "get-game-state"
-}]
+[
+	"gameService",
+	{
+		"action": "get-game-state"
+	}
+]
 ```
+
 **Response (ACK):**
+
 ```json
 {
   "gameId": 3597018,
@@ -507,31 +595,38 @@ Sent once after connection. Requests current game state.
 ```
 
 #### `make-bet`
+
 Place a bet. Sent each time player clicks "Play".
+
 ```json
-["gameService", {
-  "action": "make-bet",
-  "payload": {
-    "betAmount": "0.08",
-    "color": "BLACK",
-    "currency": "USD"
-  }
-}]
+[
+	"gameService",
+	{
+		"action": "make-bet",
+		"payload": {
+			"betAmount": "0.08",
+			"color": "BLACK",
+			"currency": "USD"
+		}
+	}
+]
 ```
+
 **ACK Response:**
+
 ```json
 {
-  "id": "operatorId::userId",
-  "playerGameId": "uuid",
-  "placedAt": "2026-02-05T19:29:14.064Z",
-  "userId": "user-uuid",
-  "operatorId": "operator-uuid",
-  "nickname": "Apricot Absent Bee",
-  "gameAvatar": null,
-  "betAmount": "0.08",
-  "color": "BLACK",
-  "currency": "USD",
-  "isNextRoundBet": false
+	"id": "operatorId::userId",
+	"playerGameId": "uuid",
+	"placedAt": "2026-02-05T19:29:14.064Z",
+	"userId": "user-uuid",
+	"operatorId": "operator-uuid",
+	"nickname": "Apricot Absent Bee",
+	"gameAvatar": null,
+	"betAmount": "0.08",
+	"color": "BLACK",
+	"currency": "USD",
+	"isNextRoundBet": false
 }
 ```
 
@@ -539,17 +634,17 @@ Place a bet. Sent each time player clicks "Play".
 
 These events exist in the client code but were not triggered during test sessions:
 
-| Event | Direction | Description |
-|-------|-----------|-------------|
-| `initialized` | IN | Connection initialization confirmation |
-| `chatService-messages` | IN | Chat message history |
-| `chatService-message` | IN | Single new chat message |
-| `sendMessageError` | IN | Chat send error |
-| `gameService-new-bet` | IN | Broadcast: individual new bet placed |
-| `gameService-bet-increased` | IN | Broadcast: individual bet increased |
-| `chatService-joinRoom` | OUT | Join chat room |
-| `chatService-sendMessage` | OUT | Send chat message |
-| `changeGameAvatar` | OUT | Change player avatar |
+| Event                       | Direction | Description                            |
+| --------------------------- | --------- | -------------------------------------- |
+| `initialized`               | IN        | Connection initialization confirmation |
+| `chatService-messages`      | IN        | Chat message history                   |
+| `chatService-message`       | IN        | Single new chat message                |
+| `sendMessageError`          | IN        | Chat send error                        |
+| `gameService-new-bet`       | IN        | Broadcast: individual new bet placed   |
+| `gameService-bet-increased` | IN        | Broadcast: individual bet increased    |
+| `chatService-joinRoom`      | OUT       | Join chat room                         |
+| `chatService-sendMessage`   | OUT       | Send chat message                      |
+| `changeGameAvatar`          | OUT       | Change player avatar                   |
 
 ---
 
@@ -613,6 +708,7 @@ STEP  DIR    MESSAGE                                     DESCRIPTION
 3     IN     43X[{...,isNextRoundBet:false}]             New bet confirmation
 4     IN     42["gameService-bet-list-updated",{...}]    Player now has 2 separate bet entries
 ```
+
 **Key insight:** There is NO separate "increase-bet" action. Each Play click sends a new `make-bet`. Bets stack as separate entries.
 
 ### 9.4 Placing Bet During FINISH_GAME Phase
@@ -626,6 +722,7 @@ STEP  DIR    MESSAGE                                     DESCRIPTION
 2     IN     42["onBalanceChange",{balance}]             Balance DEDUCTED immediately
 3     IN     43X[{...,isNextRoundBet:true}]              Bet queued for NEXT round
 ```
+
 **Key insight:** `isNextRoundBet: true` indicates the bet is queued. Balance is still deducted immediately.
 
 ### 9.5 Round Execution (Wheel Spin)
@@ -680,6 +777,7 @@ STEP  DIR    MESSAGE                                     DESCRIPTION
                 balance:"999999.92"                      (already deducted at bet time)
               }]
 ```
+
 **Key insight:** On LOSS, there is NO `gameService-withdraw-result`. Only `onBalanceChange` is sent confirming the already-deducted balance. The absence of `withdraw-result` indicates a loss.
 
 ### 9.8 New Round Start
@@ -742,112 +840,121 @@ Index  Color     Index  Color     Index  Color     Index  Color
 12     RED       26     BLUE      40     RED
 13     BLACK     27     BLACK     41     BLACK
 ```
-*Items marked with `*` were not observed in test data but are inferred from the pattern.
+
+_Items marked with `_` were not observed in test data but are inferred from the pattern.
 
 ### Color Count Summary (approximate from 53 segments):
-| Color | Count | Percentage | Multiplier | Expected Return |
-|-------|-------|-----------|------------|----------------|
-| BLACK | ~25 | ~47.2% | x2 | 94.4% |
-| RED | ~14 | ~26.4% | x3 | 79.2% |
-| BLUE | ~10 | ~18.9% | x5 | 94.5% |
-| GREEN | ~2 | ~3.8% | x50 | 190%* |
 
-*GREEN has a very high multiplier but very low probability. The house edge varies by color.
+| Color | Count | Percentage | Multiplier | Expected Return |
+| ----- | ----- | ---------- | ---------- | --------------- |
+| BLACK | ~25   | ~47.2%     | x2         | 94.4%           |
+| RED   | ~14   | ~26.4%     | x3         | 79.2%           |
+| BLUE  | ~10   | ~18.9%     | x5         | 94.5%           |
+| GREEN | ~2    | ~3.8%      | x50        | 190%\*          |
+
+\*GREEN has a very high multiplier but very low probability. The house edge varies by color.
 
 ---
 
 ## 11. Data Schemas
 
 ### Bet Object Schema
+
 ```typescript
 interface Bet {
-  id: string;                // Format: "operatorId::userId"
-  playerGameId: string;      // UUID - unique per bet placement
-  placedAt: string;          // ISO 8601 timestamp
-  userId: string;            // Player's unique ID
-  operatorId: string;        // Operator's UUID
-  nickname: string;          // Display name
-  gameAvatar: number | null; // Avatar index or null
-  betAmount: string;         // Decimal string (e.g., "0.08")
-  color: "BLACK" | "RED" | "BLUE" | "GREEN";
-  currency: string;          // ISO currency code
-  isNextRoundBet?: boolean;  // Only in ACK response
+	id: string; // Format: "operatorId::userId"
+	playerGameId: string; // UUID - unique per bet placement
+	placedAt: string; // ISO 8601 timestamp
+	userId: string; // Player's unique ID
+	operatorId: string; // Operator's UUID
+	nickname: string; // Display name
+	gameAvatar: number | null; // Avatar index or null
+	betAmount: string; // Decimal string (e.g., "0.08")
+	color: "BLACK" | "RED" | "BLUE" | "GREEN";
+	currency: string; // ISO currency code
+	isNextRoundBet?: boolean; // Only in ACK response
 }
 ```
 
 ### Game Status Schema
+
 ```typescript
 interface GameStatusChanged {
-  status: "WAIT_GAME" | "IN_GAME" | "FINISH_GAME";
-  nextChangeInMs: number;     // Milliseconds until next state change
+	status: "WAIT_GAME" | "IN_GAME" | "FINISH_GAME";
+	nextChangeInMs: number; // Milliseconds until next state change
 
-  // Present in WAIT_GAME:
-  gameId?: number;            // Incrementing round ID
-  prevRoundResults?: Array<{
-    cellIndex: number;        // Wheel position (0-52)
-    cellColor: "BLACK" | "RED" | "BLUE" | "GREEN";
-  }>;
+	// Present in WAIT_GAME:
+	gameId?: number; // Incrementing round ID
+	prevRoundResults?: Array<{
+		cellIndex: number; // Wheel position (0-52)
+		cellColor: "BLACK" | "RED" | "BLUE" | "GREEN";
+	}>;
 
-  // Present in IN_GAME and FINISH_GAME:
-  cellIndex?: number;         // Winning position
-  cellColor?: string;         // Winning color
-  inCellOffset?: number;      // Position within cell (0-1 float)
+	// Present in IN_GAME and FINISH_GAME:
+	cellIndex?: number; // Winning position
+	cellColor?: string; // Winning color
+	inCellOffset?: number; // Position within cell (0-1 float)
 }
 ```
 
 ### Bet List Updated Schema
+
 ```typescript
 interface BetListUpdated {
-  sumInUSD: number;           // Total bet pool in USD
-  bets: {
-    BLACK: Bet[];
-    RED: Bet[];
-    BLUE: Bet[];
-    GREEN: Bet[];
-  };
+	sumInUSD: number; // Total bet pool in USD
+	bets: {
+		BLACK: Bet[];
+		RED: Bet[];
+		BLUE: Bet[];
+		GREEN: Bet[];
+	};
 }
 ```
 
 ### Withdraw Result Schema
+
 ```typescript
 interface WithdrawResult {
-  currency: string;           // Player's currency
-  winAmount: string;          // Total payout amount (decimal string)
-  winCoeff: number;           // Multiplier applied (2, 3, 5, or 50)
+	currency: string; // Player's currency
+	winAmount: string; // Total payout amount (decimal string)
+	winCoeff: number; // Multiplier applied (2, 3, 5, or 50)
 }
 ```
 
 ### Balance Change Schema
+
 ```typescript
 interface BalanceChange {
-  currency: string;           // Player's currency code
-  balance: string;            // New balance (decimal string)
+	currency: string; // Player's currency code
+	balance: string; // New balance (decimal string)
 }
 ```
 
 ### Bets Config Schema
+
 ```typescript
 interface BetsConfig {
-  [currency: string]: {
-    betPresets: string[];      // Quick-select amounts
-    minBetAmount: string;      // Minimum bet
-    maxBetAmount: string;      // Maximum bet
-    maxWinAmount: string;      // Maximum possible win
-    defaultBetAmount: string;  // Default amount shown
-    decimalPlaces: number | null;
-  };
+	[currency: string]: {
+		betPresets: string[]; // Quick-select amounts
+		minBetAmount: string; // Minimum bet
+		maxBetAmount: string; // Maximum bet
+		maxWinAmount: string; // Maximum possible win
+		defaultBetAmount: string; // Default amount shown
+		decimalPlaces: number | null;
+	};
 }
 ```
 
 ### Make Bet Request Schema
+
 ```typescript
 interface MakeBetRequest {
-  action: "make-bet";
-  payload: {
-    betAmount: string;         // Decimal string
-    color: "BLACK" | "RED" | "BLUE" | "GREEN";
-    currency: string;          // ISO currency code
-  };
+	action: "make-bet";
+	payload: {
+		betAmount: string; // Decimal string
+		color: "BLACK" | "RED" | "BLUE" | "GREEN";
+		currency: string; // ISO currency code
+	};
 }
 ```
 
@@ -856,22 +963,26 @@ interface MakeBetRequest {
 ## 12. Multiplayer & Broadcasting
 
 ### Real-time Bet Broadcasting
+
 - `gameService-bet-list-updated` is broadcast to ALL connected players frequently during WAIT_GAME
 - Contains the COMPLETE bet list for the current round across ALL operators and players
 - Bet amounts are shown in their ORIGINAL currency (not converted)
 - The `sumInUSD` field provides the total pool value in USD for the BANK display
 
 ### Cross-Operator Multiplayer
+
 - Players from DIFFERENT operators share the SAME game rounds
 - Each bet's `operatorId` identifies which platform the player is from
 - Bet IDs are formatted as `operatorId::userId` to ensure uniqueness across operators
 
 ### Player Identity
+
 - Players are identified by `userId` (unique per operator)
 - `nickname` is the display name (can be auto-generated like "Apricot Absent Bee" or custom)
 - `gameAvatar` is an integer index or null (corresponds to avatar images)
 
 ### Bet List Update Frequency
+
 During WAIT_GAME phase, `gameService-bet-list-updated` events are sent approximately every 1-2 seconds, aggregating all new bets since last update.
 
 ---
@@ -879,38 +990,46 @@ During WAIT_GAME phase, `gameService-bet-list-updated` events are sent approxima
 ## 13. Edge Cases & Error Handling
 
 ### Betting During Different Game Phases
-| Phase | Can Bet? | Behavior |
-|-------|---------|----------|
-| WAIT_GAME | Yes | Bet placed for current round (`isNextRoundBet: false`) |
-| IN_GAME | No | Button likely disabled (not tested - wheel is spinning) |
-| FINISH_GAME | Yes | Bet queued for NEXT round (`isNextRoundBet: true`) |
+
+| Phase       | Can Bet? | Behavior                                                |
+| ----------- | -------- | ------------------------------------------------------- |
+| WAIT_GAME   | Yes      | Bet placed for current round (`isNextRoundBet: false`)  |
+| IN_GAME     | No       | Button likely disabled (not tested - wheel is spinning) |
+| FINISH_GAME | Yes      | Bet queued for NEXT round (`isNextRoundBet: true`)      |
 
 ### Connection Handling
+
 - Engine.IO ping/pong every 25s maintains connection
 - Ping timeout of 20s - if no pong, connection is considered dead
 - Client should implement reconnection logic
 
 ### Error Events
+
 - `gameService-exception` is emitted for server-side errors (insufficient balance, invalid bet amount, etc.)
 
 ### Balance Precision
+
 - All monetary values are transmitted as STRINGS (not numbers) to preserve decimal precision
 - Example: `"0.080000000000000000"` - up to 18 decimal places
 - Client must handle string-to-number conversion carefully
 
 ### Multi-Currency Support
+
 - Each bet is placed in the player's configured currency
 - The BANK total (`sumInUSD`) is always in USD regardless of player's currency
 - Currency exchange rates are provided at initialization via the `currencies` event
 - UI converts BANK amount to player's currency using provided rates
 
 ### Provably Fair System
+
 - Game supports provably fair verification via `gameService-game-seeds` / `gameService-onGameSeeds`
 - Seeds can be requested and verified by players
 - Accessible through the "Provably fair settings" menu item
 
 ### Static Assets
+
 The game loads these key media assets:
+
 - `WheelTheme.webm` - Background theme audio/video
 - `win.webm` - Win celebration audio
 - `start.webm` - Round start audio
@@ -961,11 +1080,13 @@ TIME(ms)  DIR   EVENT                           KEY DATA
 12650     IN    onBalanceChange                  balance:"999999.92" (SAME - no win, no withdraw-result!)
 17600     IN    gameService-game-status-changed  status:WAIT_GAME, gameId:3597021
 ```
+
 **Note:** On LOSS, `gameService-withdraw-result` is NEVER sent. Balance stays at post-bet level.
 
 ## Appendix C: Socket.IO ACK ID Pattern
 
 Client requests use incrementing ACK IDs to match responses:
+
 ```
 OUT: 420["gameService",{action:"get-game-config"}]   → ACK ID 0 (response: 430[...])
 OUT: 421["gameService",{action:"get-game-state"}]    → ACK ID 1 (response: 431[...])
@@ -975,3 +1096,29 @@ OUT: 423["gameService",{action:"make-bet",...}]      → ACK ID 3 (response: 433
 
 The ACK ID is embedded in the Socket.IO message prefix (e.g., `42X` for request, `43X` for response).
 All game actions are sent to the `gameService` event, differentiated by the `action` field.
+
+---
+
+Key Findings:
+
+Game Mechanics:
+
+- Multiplayer color-betting wheel with 4 colors: BLACK(x2), RED(x3), BLUE(x5), GREEN(x50)
+- 53 wheel segments, server-driven rounds (~17.5s cycle)
+- Bets can stack (multiple Play clicks = multiple bets on same color)
+- Bets during FINISH_GAME phase auto-queue for next round (isNextRoundBet: true)
+
+Socket Protocol (Socket.IO over WSS):
+
+- 8 unique IN events captured: onBalanceChange, betsRanges, betsConfig, myData, currencies,
+  gameService-game-status-changed, gameService-bet-list-updated, gameService-withdraw-result
+- 3 unique OUT actions: get-game-config, get-game-state, make-bet
+- All actions go through single gameService event with action field
+
+Critical Backend Insights:
+
+- Balance deducted immediately on bet, credited on win
+- gameService-withdraw-result is sent ONLY on win (absence = loss)
+- gameService-bet-list-updated broadcasts ALL bets to ALL players (cross-operator)
+- Game state machine: WAIT_GAME → IN_GAME → FINISH_GAME → repeat
+- IN_GAME message already contains the winning cellIndex and cellColor (client animates accordingly)
