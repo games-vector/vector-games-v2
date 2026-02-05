@@ -55,3 +55,9 @@ coverage/
 
 # Testing
 .jest/
+
+# Game docs (local only)
+src/games/coinflip-game/docs/
+
+# FB Chat files (local only)
+FB_CHAT*
