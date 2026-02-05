@@ -108,6 +108,34 @@ INSERT INTO `game_config_diver` VALUES (1,'RTP','92','2026-01-30 13:05:29','2026
 UNLOCK TABLES;
 
 --
+-- Table structure for table `game_config_keno`
+--
+
+DROP TABLE IF EXISTS `game_config_keno`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `game_config_keno` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `key` varchar(255) NOT NULL,
+  `value` text,
+  `updatedAt` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `key` (`key`),
+  KEY `idx_key` (`key`)
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `game_config_keno`
+--
+
+LOCK TABLES `game_config_keno` WRITE;
+/*!40000 ALTER TABLE `game_config_keno` DISABLE KEYS */;
+INSERT INTO `game_config_keno` VALUES (1,'betConfig','{"minBetAmount":"0.01","maxBetAmount":"200.00","maxWinAmount":"20000.00","defaultBetAmount":"0.06","betPresets":["0.5","1","2","7"],"decimalPlaces":"2","currency":"USD"}','2026-02-05 00:00:00'),(2,'game.payloads','{"gameCode":"keno","gameName":"Keno","platform":"In-out","gameType":"KENO","settleType":"platformTxId"}','2026-02-05 00:00:00'),(3,'frontend.host','gscr.keno.live','2026-02-05 00:00:00'),(4,'payoutTables','{"LOW":{"1":{"0":0,"1":2.85},"2":{"0":0,"1":1.35,"2":4.1},"3":{"0":0,"1":1.3,"2":2.54,"3":5},"4":{"0":0,"1":1.1,"2":1.72,"3":5,"4":10},"5":{"0":0,"1":0.25,"2":1.36,"3":5,"4":10,"5":15},"6":{"0":0,"1":0,"2":1.5,"3":2,"4":5,"5":13,"6":20},"7":{"0":0,"1":0,"2":0.5,"3":2,"4":5,"5":10,"6":20,"7":50},"8":{"0":0,"1":0,"2":0,"3":2,"4":4,"5":8,"6":15,"7":50,"8":100},"9":{"0":0,"1":0,"2":0,"3":1,"4":3,"5":5,"6":10,"7":30,"8":100,"9":200},"10":{"0":0,"1":0.1,"2":0.25,"3":1.25,"4":2,"5":10,"6":22,"7":50,"8":100,"9":250,"10":300}},"MEDIUM":{"1":{"0":0,"1":3.8},"2":{"0":0,"1":1.8,"2":5},"3":{"0":0,"1":1.2,"2":2.42,"3":8},"4":{"0":0,"1":0.8,"2":2,"3":6,"4":20},"5":{"0":0,"1":0.5,"2":1.4,"3":3.45,"4":10,"5":35},"6":{"0":0,"1":0.25,"2":1.4,"3":2.1,"4":5,"5":25,"6":50},"7":{"0":0,"1":0,"2":1,"3":2.5,"4":6,"5":15,"6":40,"7":100},"8":{"0":0,"1":0,"2":0.5,"3":2,"4":5,"5":12,"6":30,"7":100,"8":250},"9":{"0":0,"1":0,"2":0,"3":1.5,"4":4,"5":8,"6":20,"7":60,"8":200,"9":500},"10":{"0":0,"1":0,"2":0.25,"3":1.1,"4":2.45,"5":10,"6":25,"7":50,"8":250,"9":500,"10":1000}},"HIGH":{"1":{"0":0,"1":5.5},"2":{"0":0,"1":2,"2":8},"3":{"0":0,"1":1,"2":2.62,"3":15},"4":{"0":0,"1":0,"2":2.5,"3":8,"4":40},"5":{"0":0,"1":0,"2":2,"3":3.3,"4":15,"5":50},"6":{"0":0,"1":0,"2":1.1,"3":2.25,"4":10,"5":50,"6":100},"7":{"0":0,"1":0,"2":0.5,"3":2.5,"4":8,"5":25,"6":80,"7":200},"8":{"0":0,"1":0,"2":0,"3":2,"4":6,"5":18,"6":50,"7":200,"8":500},"9":{"0":0,"1":0,"2":0,"3":1,"4":4,"5":10,"6":35,"7":100,"8":400,"9":1000},"10":{"0":0,"1":0,"2":0,"3":0.98,"4":2.7,"5":10,"6":50,"7":100,"8":500,"9":1000,"10":10000}}}','2026-02-05 00:00:00');
+/*!40000 ALTER TABLE `game_config_keno` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `game_config_platform`
 --
 
@@ -193,7 +221,7 @@ CREATE TABLE `games` (
 
 LOCK TABLES `games` WRITE;
 /*!40000 ALTER TABLE `games` DISABLE KEYS */;
-INSERT INTO `games` VALUES ('4937582c-cf04-43f2-ad26-20682fd625a8','chicken-road-two','chicken-road-2','In-out','CRASH','platformTxId',1,'2026-01-21 14:52:50.162667','2026-01-21 14:52:50.162667',NULL,NULL),('6bb7f5e1-dc2c-41d5-9437-166826dd1ab9','diver','diver','In-out','CRASH','platformTxId',1,'2026-01-30 13:03:36.048847','2026-01-30 13:06:05.904816',NULL,NULL),('82f7fea8-292e-4a44-a348-f5be62fb4793','sugar-daddy','sugar-daddy','In-out','CRASH','platformTxId',1,'2026-01-21 14:52:50.114327','2026-01-29 10:07:53.208433',NULL,NULL),('a4361c9e-eaf6-44f0-b053-f8e63eaf7fb4','chicken-road-vegas','chicken-road-2','In-out','CRASH','platformTxId',1,'2026-01-21 14:52:50.191238','2026-01-21 14:52:50.191238',NULL,NULL);
+INSERT INTO `games` VALUES ('4937582c-cf04-43f2-ad26-20682fd625a8','chicken-road-two','chicken-road-2','In-out','CRASH','platformTxId',1,'2026-01-21 14:52:50.162667','2026-01-21 14:52:50.162667',NULL,NULL),('6bb7f5e1-dc2c-41d5-9437-166826dd1ab9','diver','diver','In-out','CRASH','platformTxId',1,'2026-01-30 13:03:36.048847','2026-01-30 13:06:05.904816',NULL,NULL),('82f7fea8-292e-4a44-a348-f5be62fb4793','sugar-daddy','sugar-daddy','In-out','CRASH','platformTxId',1,'2026-01-21 14:52:50.114327','2026-01-29 10:07:53.208433',NULL,NULL),('a4361c9e-eaf6-44f0-b053-f8e63eaf7fb4','chicken-road-vegas','chicken-road-2','In-out','CRASH','platformTxId',1,'2026-01-21 14:52:50.191238','2026-01-21 14:52:50.191238',NULL,NULL),('b5e8f3a2-7c1d-4e9b-a6f0-3d2c1b8e9f4a','keno','Keno','In-out','KENO','platformTxId',1,'2026-02-05 00:00:00.000000','2026-02-05 00:00:00.000000',NULL,NULL);
 /*!40000 ALTER TABLE `games` ENABLE KEYS */;
 UNLOCK TABLES;
 

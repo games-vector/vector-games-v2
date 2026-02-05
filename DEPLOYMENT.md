@@ -202,10 +202,11 @@ The deployment script automatically creates the database if it doesn't exist. Ho
 1. **Create initial game entries** (if not auto-created):
    ```sql
    INSERT INTO games (gameCode, gameName, platform, gameType, settleType, isActive)
-   VALUES 
+   VALUES
      ('chicken-road-two', 'chicken-road-2', 'In-out', 'CRASH', 'platformTxId', true),
      ('chicken-road-vegas', 'chicken-road-vegas', 'In-out', 'CRASH', 'platformTxId', true),
-     ('sugar-daddy', 'Sugar Daddy', 'In-out', 'CRASH', 'platformTxId', true);
+     ('sugar-daddy', 'Sugar Daddy', 'In-out', 'CRASH', 'platformTxId', true),
+     ('keno', 'Keno', 'In-out', 'KENO', 'platformTxId', true);
    ```
 
 2. **Migrate data from chicken-road-b** (if applicable):

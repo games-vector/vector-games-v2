@@ -138,6 +138,18 @@ export class CriticalHandlersService {
       };
     }
 
+    if (gameCode === games.KENO.GAME_CODE) {
+      return {
+        betConfig: games.KENO.betConfig,
+        payoutTables: games.KENO.payoutTables,
+        LAST_WIN: {
+          DEFAULT_USERNAME: games.KENO.LAST_WIN.DEFAULT_USERNAME,
+          DEFAULT_WIN_AMOUNT: games.KENO.LAST_WIN.DEFAULT_WIN_AMOUNT,
+          DEFAULT_CURRENCY: games.KENO.LAST_WIN.DEFAULT_CURRENCY,
+        },
+      };
+    }
+
     return null;
   }
 }
