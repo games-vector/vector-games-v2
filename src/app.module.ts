@@ -31,6 +31,7 @@ import { GameApiRoutesModule } from './routes/game-api-routes/game-api-routes.mo
 import { BetCleanupSchedulerModule } from './modules/bet-cleanup/bet-cleanup-scheduler.module';
 import { RefundSchedulerModule } from './modules/refund-scheduler/refund-scheduler.module';
 import { WalletNotificationModule } from './modules/wallet-notification/wallet-notification.module';
+import { PlatformMinesModule } from './games/platform-mines-game/platform-mines.module';
 
 @Module({
   imports: [
@@ -157,6 +158,7 @@ import { WalletNotificationModule } from './modules/wallet-notification/wallet-n
     SugarDaddyGameModule, // Depends on GamesModule (GameDispatcherService)
     // DiverGameModule, // Depends on GamesModule (GameDispatcherService)
     ChickenRoadGameModule, // Depends on GamesModule (GameDispatcherService)
+    PlatformMinesModule, // Depends on GamesModule (GameDispatcherService)
     // API Routes
     CommonApiFunctionsModule, // /wallet/* endpoints (createMember, login, doLoginAndLaunchGame, logout)
     GameApiRoutesModule, // /api/* endpoints (auth, games, online-counter)

@@ -310,6 +310,47 @@ const GAMES_CONFIG = {
       INVALID_STEP_SEQUENCE: 'invalid_step_sequence',
     },
   },
+  // Platform Mines Game
+  PLATFORM_MINES: {
+    GAME_CODE: 'platform-mines',
+    GAME_NAME: 'Platform Mines',
+    PLATFORM: 'In-out',
+    GAME_TYPE: 'INSTANT',
+
+    BET_CONFIG: {
+      minBetAmount: '0.01',
+      maxBetAmount: '200.00',
+      maxWinAmount: '20000.00',
+      defaultBetAmount: '0.48',
+      betPresets: ['0.5', '1', '2', '7'],
+      decimalPlaces: '2',
+      currency: 'INR',
+    },
+
+    GAME_PAYLOADS: {
+      GAME_TYPE: 'INSTANT',
+      PLATFORM: 'In-out',
+      SETTLE_TYPE: 'platformTxId',
+    },
+
+    GAME: {
+      GRID_SIZE: 25,
+      DECIMAL_PLACES: 2,
+      HOUSE_EDGE: 0.05,
+      DEFAULT_MINES_COUNT: 3,
+      BOMB_PRESETS: [3, 5, 10, 24],
+      BET_HISTORY_LIMIT: 30,
+      BET_HISTORY_DAYS: 7,
+    },
+
+    ERROR_MESSAGES: {
+      INVALID_MINES_COUNT: 'invalid_mines_count',
+      INVALID_CELL_POSITION: 'invalid_cell_position',
+      CELL_ALREADY_OPENED: 'cell_already_opened',
+      GAME_NOT_IN_PROGRESS: 'game_not_in_progress',
+      NO_CELLS_OPENED: 'no_cells_opened',
+    },
+  },
 } as const;
 
 // ============================================================================
